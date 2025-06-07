@@ -8,9 +8,9 @@ info:
     email: support@example.com
 
 servers:
-  - url: http://localhost:3000
+  - url: http://localhost:8080
     description: Development server
-  - url: https://your-app.onrender.com
+  - url: https://exe201-server.onrender.com
     description: Production server
 
 paths:
