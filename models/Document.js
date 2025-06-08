@@ -11,11 +11,6 @@ const documentSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    category: {
-      type: String,
-      required: true,
-      trim: true,
-    },
     price: {
       type: Number,
       required: true,
@@ -45,10 +40,6 @@ const documentSchema = new mongoose.Schema(
         trim: true,
       },
     ],
-    isPublic: {
-      type: Boolean,
-      default: true,
-    },
     feedback: [
       {
         user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -66,7 +57,18 @@ const documentSchema = new mongoose.Schema(
     author: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+    },
+    isPublic: {
+      type: Boolean,
+      default: false,
+    },
+    isBanned: {
+      type: Boolean,
+      default: false,
+    },
+    isDeleted: {
+      type: Boolean,
+      default: false,
     },
   },
   { timestamps: true }

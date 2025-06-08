@@ -1,4 +1,4 @@
-const { User } = require('../models/User');
+const User = require('../models/User');
 const Interest = require('../models/Interest');
 
 exports.getAllUsers = async (req, res) => {
@@ -148,6 +148,91 @@ exports.updateProfile = async (req, res) => {
     });
   } catch (error) {
     console.log('ERROR', error);
+    res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi server',
+      data: null,
+    });
+  }
+};
+exports.banUser = async (req, res) => {
+  const { id } = req.params;
+  const { isBanned } = req.body;
+  try {
+    const user = await User.findByIdAndUpdate(id, { isBanned }, { new: true });
+    if (!user) {
+      return res.status(404).json({
+        status: false,
+        statusCode: 404,
+        message: 'Không tìm thấy người dùng',
+        data: null,
+      });
+    }
+    res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Cập nhật trạng thái người dùng thành công',
+      data: user,
+    });
+  } catch (error) {
+    console.log('ERROR', error);
+    res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi server',
+      data: null,
+    });
+  }
+};
+exports.unbanUser = async (req, res) => {
+  const { id } = req.params;
+  const { isBanned } = req.body;
+  try {
+    const user = await User.findByIdAndUpdate(id, { isBanned }, { new: true });
+    if (!user) {
+      return res.status(404).json({
+        status: false,
+        statusCode: 404,
+        message: 'Không tìm thấy người dùng',
+        data: null,
+      });
+    }
+    res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Cập nhật trạng thái người dùng thành công',
+      data: user,
+    });
+  } catch (error) {
+    console.log('ERROR', error);
+    res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi server',
+      data: null,
+    });
+  }
+};
+exports.getProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({
+        status: false,
+        statusCode: 404,
+        message: 'Không tìm thấy người dùng',
+        data: null,
+      });
+    }
+    res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Lấy thông tin người dùng thành công',
+      data: user,
+    });
+  } catch (error) {
+    console.log('ERROR get profile:', error);
     res.status(500).json({
       status: false,
       statusCode: 500,

@@ -1,4 +1,3 @@
-const { User, Seller } = require('../models/User');
 const {
   generateToken,
   hashPassword,
@@ -6,7 +5,8 @@ const {
   sendEmail,
   comparePassword,
 } = require('../utils/auth');
-const { Interest } = require('../models/Interest');
+const Interest = require('../models/Interest');
+const User = require('../models/User');
 
 exports.registerCustomer = async (req, res) => {
   try {
@@ -105,7 +105,7 @@ exports.registerSeller = async (req, res) => {
   try {
     const { name, email, password, avatar, phone } = req.body;
 
-    const existingUser = await Seller.findOne({ email });
+    const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({
         status: false,
@@ -137,8 +137,8 @@ exports.registerSeller = async (req, res) => {
       email,
       password: hashedPassword,
       avatar,
-      phone,
       role: 'SELLER',
+      phone,
     });
 
     user.password = await hashPassword(password);
@@ -179,8 +179,7 @@ exports.registerSeller = async (req, res) => {
     res.status(201).json({
       status: true,
       statusCode: 201,
-      message:
-        'Register successfully, pls check your email to verify your account',
+      message: 'User registered successfully',
       data: {
         user,
         accessToken,
@@ -231,8 +230,19 @@ exports.verifyEmail = async (req, res) => {
 
     await user.save();
 
-    // Lấy danh sách sở thích để hiển thị cho user chọn
-    const interests = await Interest.find().select('name emoji');
+    if (user.role === 'SELLER') {
+      res.status(200).json({
+        status: true,
+        statusCode: 200,
+        message: 'Xác thực email thành công',
+        data: {
+          user,
+          accessToken,
+        },
+      });
+    }
+
+    const interests = await Interest.find();
 
     res.status(200).json({
       status: true,
@@ -241,8 +251,8 @@ exports.verifyEmail = async (req, res) => {
       data: {
         user,
         accessToken,
-        interests, // Thêm danh sách sở thích vào response
-        needSetInterests: true, // Flag để frontend biết cần hiển thị modal chọn sở thích
+        interests,
+        needSetInterests: true,
       },
     });
   } catch (error) {
@@ -295,7 +305,22 @@ exports.login = async (req, res) => {
         data: null,
       });
     }
-
+    if (user.isBanned) {
+      return res.status(403).json({
+        status: false,
+        statusCode: 403,
+        message: 'Your account has been banned',
+        data: null,
+      });
+    }
+    if (user.isDeleted) {
+      return res.status(403).json({
+        status: false,
+        statusCode: 403,
+        message: 'Your account has been deleted',
+        data: null,
+      });
+    }
     const accessToken = generateToken(user._id, user.role, user.email);
 
     await user.save();

@@ -20,19 +20,31 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: `https://api.dicebear.com/9.x/initials/svg?seed=default`,
     },
-    role: {
-      type: String,
-      enum: ['CUSTOMER', 'SELLER', 'ADMIN', 'MANAGER'],
-      default: 'CUSTOMER',
-    },
     phone: {
       type: String,
       required: [true, 'Phone is required'],
       match: [/^[0-9]{10}$/, 'Please add a valid phone number'],
     },
-    isVerified: {
-      type: Boolean,
-      default: false,
+    billingInfo: {
+      type: String,
+      default: '',
+    },
+    bankName: {
+      type: String,
+      default: '',
+    },
+    bankAccountName: {
+      type: String,
+      default: '',
+    },
+    bankAccountNumber: {
+      type: String,
+      default: '',
+    },
+    role: {
+      type: String,
+      enum: ['CUSTOMER', 'SELLER', 'ADMIN', 'MANAGER'],
+      default: 'CUSTOMER',
     },
     verificationToken: String,
     verificationTokenExpire: Date,
@@ -50,26 +62,20 @@ const userSchema = new mongoose.Schema(
         ref: 'Document',
       },
     ],
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    isBanned: {
+      type: Boolean,
+      default: false,
+    },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );
 
-const sellerSchema = new mongoose.Schema({
-  billingInfo: {
-    type: String,
-  },
-  bankName: {
-    type: String,
-  },
-  bankAccountName: {
-    type: String,
-  },
-  bankAccountNumber: {
-    type: String,
-  },
-});
-
-const User = mongoose.model('User', userSchema);
-const Seller = User.discriminator('Seller', sellerSchema);
-
-module.exports = { User, Seller };
+module.exports = mongoose.model('User', userSchema);

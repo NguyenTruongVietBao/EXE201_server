@@ -68,3 +68,38 @@ exports.createInterest = async (req, res) => {
     });
   }
 };
+exports.updateInterest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    const interest = await Interest.findByIdAndUpdate(
+      id,
+      { name },
+      { new: true }
+    );
+
+    if (!interest) {
+      return res.status(404).json({
+        status: false,
+        statusCode: 404,
+        message: 'Sở thích không tồn tại',
+        data: null,
+      });
+    }
+
+    res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Cập nhật sở thích thành công',
+      data: interest,
+    });
+  } catch (error) {
+    console.log('ERROR', error);
+    res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi server',
+      data: null,
+    });
+  }
+};

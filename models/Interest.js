@@ -7,7 +7,6 @@ const interestSchema = new mongoose.Schema({
   },
   emoji: {
     type: String,
-    required: true,
     default: '✨',
   },
 });
