@@ -48,7 +48,7 @@ const documentSchema = new mongoose.Schema(
         createdAt: { type: Date, default: Date.now },
       },
     ],
-    interest: [
+    interests: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Interest',

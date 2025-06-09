@@ -119,7 +119,7 @@ exports.createDocument = async (req, res) => {
       documentUrl: documentUrls,
       videoUrl: videoUrls,
       isPublic: isPublic,
-      interest: validInterests,
+      interests: validInterests,
       author: authorId,
     });
 
@@ -128,7 +128,7 @@ exports.createDocument = async (req, res) => {
     // Populate author và interest để trả về thông tin đầy đủ
     const populatedDocument = await Document.findById(savedDocument._id)
       .populate('author', 'name email')
-      .populate('interest', 'name emoji');
+      .populate('interests', 'name emoji');
 
     res.status(201).json({
       status: true,
@@ -224,7 +224,7 @@ exports.updateDocument = async (req, res) => {
     }
 
     // Validate interests nếu có
-    let validInterests = existingDocument.interest;
+    let validInterests = existingDocument.interests;
     if (interests && interests.length > 0) {
       try {
         const interestIds =
@@ -308,7 +308,7 @@ exports.updateDocument = async (req, res) => {
     if (discount !== undefined) updateData.discount = parseFloat(discount);
     if (isPublic !== undefined)
       updateData.isPublic = isPublic === 'true' || isPublic === true;
-    if (interests !== undefined) updateData.interest = validInterests;
+    if (interests !== undefined) updateData.interests = validInterests;
 
     // Chỉ update file URLs nếu có file mới hoặc replaceFiles = true
     if (newImageUrls.length > 0 || shouldReplace) {
@@ -327,7 +327,7 @@ exports.updateDocument = async (req, res) => {
       runValidators: true,
     })
       .populate('author', 'name email')
-      .populate('interest', 'name emoji');
+      .populate('interests', 'name emoji');
 
     res.status(200).json({
       status: true,
@@ -381,7 +381,7 @@ exports.getAllDocuments = async (req, res) => {
 
     if (isPublic !== undefined) filter.isPublic = isPublic;
     if (author) filter.author = author;
-    if (interest) filter.interest = { $in: [interest] };
+    if (interest) filter.interests = { $in: [interest] };
     if (search) {
       filter.$or = [
         { title: { $regex: search, $options: 'i' } },
@@ -393,7 +393,7 @@ exports.getAllDocuments = async (req, res) => {
 
     const documents = await Document.find(filter)
       .populate('author', 'name email')
-      .populate('interest', 'name emoji')
+      .populate('interests', 'name emoji')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -430,7 +430,7 @@ exports.getDocumentById = async (req, res) => {
 
     const document = await Document.findById(id)
       .populate('author', 'name email')
-      .populate('interest', 'name emoji')
+      .populate('interests', 'name emoji')
       .populate('feedback.user', 'name email');
 
     if (!document) {
@@ -507,7 +507,7 @@ exports.deleteDocument = async (req, res) => {
 exports.getDocumentByInterestId = async (req, res) => {
   try {
     const { interestId } = req.params;
-    const documents = await Document.find({ interest: interestId });
+    const documents = await Document.find({ interests: interestId });
     res.status(200).json({
       status: true,
       statusCode: 200,
