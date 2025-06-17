@@ -1,9 +1,10 @@
 const User = require('../models/User');
 const Interest = require('../models/Interest');
+const { generateToken } = require('../utils/auth');
 
 exports.getAllUsers = async (req, res) => {
   try {
-    const users = await User.find();
+    const users = await User.find().populate('interests', 'name emoji');
     res.status(200).json({
       status: true,
       statusCode: 200,
@@ -23,7 +24,7 @@ exports.getAllUsers = async (req, res) => {
 exports.getUserById = async (req, res) => {
   const { id } = req.params;
   try {
-    const user = await User.findById(id);
+    const user = await User.findById(id).populate('interests', 'name emoji');
     if (!user) {
       return res.status(404).json({
         status: false,
@@ -85,6 +86,8 @@ exports.setUserInterests = async (req, res) => {
       });
     }
 
+    const accessToken = generateToken(user._id, user.role, user.email);
+
     const updatedUser = await User.findByIdAndUpdate(
       id,
       { interests },
@@ -95,7 +98,10 @@ exports.setUserInterests = async (req, res) => {
       status: true,
       statusCode: 200,
       message: 'Cập nhật sở thích thành công',
-      data: updatedUser,
+      data: {
+        user: updatedUser,
+        accessToken,
+      },
     });
   } catch (error) {
     console.log('ERROR', error);
@@ -110,7 +116,9 @@ exports.setUserInterests = async (req, res) => {
 exports.updateProfile = async (req, res) => {
   const { id } = req.params;
   const { name, avatar, phone } = req.body;
+
   try {
+    // Kiểm tra user có tồn tại không
     const existingUser = await User.findById(id);
     if (!existingUser) {
       return res.status(404).json({
@@ -120,34 +128,81 @@ exports.updateProfile = async (req, res) => {
         data: null,
       });
     }
-    if (name && name.trim().length > 0) {
-      existingUser.name = name;
+
+    // Chuẩn bị object update với validation
+    const updateData = {};
+
+    if (name !== undefined && name !== null) {
+      const trimmedName = name.toString().trim();
+      if (trimmedName.length === 0) {
+        return res.status(400).json({
+          status: false,
+          statusCode: 400,
+          message: 'Tên không được để trống',
+          data: null,
+        });
+      }
+      updateData.name = trimmedName;
     }
-    if (avatar && avatar.trim().length > 0) {
-      existingUser.avatar = avatar;
+
+    if (avatar !== undefined && avatar !== null) {
+      const trimmedAvatar = avatar.toString().trim();
+      updateData.avatar = trimmedAvatar;
     }
-    if (phone && phone.trim().length > 0) {
-      existingUser.phone = phone;
+
+    if (phone !== undefined && phone !== null) {
+      const trimmedPhone = phone.toString().trim();
+      if (trimmedPhone.length > 0) {
+        // Validation cơ bản cho số điện thoại
+        const phoneRegex = /^[0-9+\-\s()]{10,15}$/;
+        if (!phoneRegex.test(trimmedPhone)) {
+          return res.status(400).json({
+            status: false,
+            statusCode: 400,
+            message: 'Số điện thoại không hợp lệ',
+            data: null,
+          });
+        }
+        updateData.phone = trimmedPhone;
+      }
     }
-    if (name) {
-      existingUser.name = name;
+
+    // Kiểm tra có dữ liệu để update không
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        status: false,
+        statusCode: 400,
+        message: 'Không có dữ liệu để cập nhật',
+        data: null,
+      });
     }
-    if (avatar) {
-      existingUser.avatar = avatar;
-    }
-    if (phone) {
-      existingUser.phone = phone;
-    }
-    const user = await existingUser.save();
+
+    // Cập nhật user và populate interests
+    const updatedUser = await User.findByIdAndUpdate(id, updateData, {
+      new: true,
+      runValidators: true,
+    }).populate('interests', 'name emoji');
 
     res.status(200).json({
       status: true,
       statusCode: 200,
-      message: 'Cập nhật người dùng thành công',
-      data: user,
+      message: 'Cập nhật thông tin người dùng thành công',
+      data: updatedUser,
     });
   } catch (error) {
-    console.log('ERROR', error);
+    console.log('ERROR updateProfile:', error);
+
+    // Xử lý validation errors từ mongoose
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map((err) => err.message);
+      return res.status(400).json({
+        status: false,
+        statusCode: 400,
+        message: messages.join(', '),
+        data: null,
+      });
+    }
+
     res.status(500).json({
       status: false,
       statusCode: 500,
@@ -158,9 +213,12 @@ exports.updateProfile = async (req, res) => {
 };
 exports.banUser = async (req, res) => {
   const { id } = req.params;
-  const { isBanned } = req.body;
   try {
-    const user = await User.findByIdAndUpdate(id, { isBanned }, { new: true });
+    const user = await User.findByIdAndUpdate(
+      id,
+      { isBanned: true },
+      { new: true }
+    );
     if (!user) {
       return res.status(404).json({
         status: false,
@@ -187,9 +245,12 @@ exports.banUser = async (req, res) => {
 };
 exports.unbanUser = async (req, res) => {
   const { id } = req.params;
-  const { isBanned } = req.body;
   try {
-    const user = await User.findByIdAndUpdate(id, { isBanned }, { new: true });
+    const user = await User.findByIdAndUpdate(
+      id,
+      { isBanned: false },
+      { new: true }
+    );
     if (!user) {
       return res.status(404).json({
         status: false,
@@ -216,7 +277,10 @@ exports.unbanUser = async (req, res) => {
 };
 exports.getProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id).populate(
+      'interests',
+      'name emoji'
+    );
     if (!user) {
       return res.status(404).json({
         status: false,

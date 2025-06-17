@@ -22,19 +22,27 @@ const documentSchema = new mongoose.Schema(
       min: 0,
       max: 100,
     },
-    imageUrl: [
+    duration: {
+      type: String,
+      default: '1 day',
+    },
+    download: {
+      type: Number,
+      default: 0,
+    },
+    imageUrls: [
       {
         type: String,
         trim: true,
       },
     ],
-    documentUrl: [
+    documentUrls: [
       {
         type: String,
         trim: true,
       },
     ],
-    videoUrl: [
+    videoUrls: [
       {
         type: String,
         trim: true,
@@ -58,15 +66,12 @@ const documentSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
     },
-    isPublic: {
-      type: Boolean,
-      default: false,
+    status: {
+      type: String,
+      enum: ['REJECTED', 'PENDING', 'APPROVED'],
+      default: 'PENDING',
     },
-    isBanned: {
-      type: Boolean,
-      default: false,
-    },
-    isDeleted: {
+    isFree: {
       type: Boolean,
       default: false,
     },

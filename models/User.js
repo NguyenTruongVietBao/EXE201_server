@@ -4,7 +4,6 @@ const userSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      minlength: 3,
     },
     email: {
       type: String,
@@ -18,16 +17,15 @@ const userSchema = new mongoose.Schema(
     },
     avatar: {
       type: String,
-      default: `https://api.dicebear.com/9.x/initials/svg?seed=default`,
     },
     phone: {
       type: String,
       required: [true, 'Phone is required'],
-      match: [/^[0-9]{10}$/, 'Please add a valid phone number'],
     },
-    billingInfo: {
+    role: {
       type: String,
-      default: '',
+      enum: ['CUSTOMER', 'SELLER', 'ADMIN', 'MANAGER'],
+      default: 'CUSTOMER',
     },
     bankName: {
       type: String,
@@ -41,15 +39,6 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
-    role: {
-      type: String,
-      enum: ['CUSTOMER', 'SELLER', 'ADMIN', 'MANAGER'],
-      default: 'CUSTOMER',
-    },
-    verificationToken: String,
-    verificationTokenExpire: Date,
-    resetPasswordToken: String,
-    resetPasswordExpire: Date,
     interests: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -62,6 +51,12 @@ const userSchema = new mongoose.Schema(
         ref: 'Document',
       },
     ],
+    groups: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Group',
+      },
+    ],
     isVerified: {
       type: Boolean,
       default: false,
@@ -70,12 +65,22 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    isDeleted: {
-      type: Boolean,
-      default: false,
-    },
+    verificationToken: String,
+    verificationTokenExpire: Date,
+    resetPasswordToken: String,
+    resetPasswordExpire: Date,
   },
   { timestamps: true }
 );
+
+// Cập nhật avatar mặc định
+userSchema.pre('save', function (next) {
+  if (!this.avatar && this.name) {
+    this.avatar = `https://api.dicebear.com/9.x/lorelei/svg?seed=${encodeURIComponent(
+      this.name
+    )}&backgroundType=gradientLinear&backgroundColor=b6e3f4,d1d4f9`;
+  }
+  next();
+});
 
 module.exports = mongoose.model('User', userSchema);

@@ -10,7 +10,7 @@ const User = require('../models/User');
 
 exports.registerCustomer = async (req, res) => {
   try {
-    const { name, email, password, avatar, phone } = req.body;
+    const { name, email, password, phone } = req.body;
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -43,7 +43,6 @@ exports.registerCustomer = async (req, res) => {
       name,
       email,
       password: hashedPassword,
-      avatar,
       phone,
     });
 
@@ -75,8 +74,7 @@ exports.registerCustomer = async (req, res) => {
             <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 25px 0;">
             <p style="font-size: 12px; color: #718096;">Nếu bạn không yêu cầu email này, vui lòng bỏ qua nó.</p>
           </div>
-        </body>
-        </html>
+        </body>       
       `,
     });
 
@@ -103,7 +101,15 @@ exports.registerCustomer = async (req, res) => {
 };
 exports.registerSeller = async (req, res) => {
   try {
-    const { name, email, password, avatar, phone } = req.body;
+    const {
+      name,
+      email,
+      password,
+      phone,
+      bankName,
+      bankAccountName,
+      bankAccountNumber,
+    } = req.body;
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -130,15 +136,25 @@ exports.registerSeller = async (req, res) => {
         data: null,
       });
     }
+    if (!bankName || !bankAccountName || !bankAccountNumber) {
+      return res.status(400).json({
+        status: false,
+        statusCode: 400,
+        message: 'Bank name, account name and account number are required',
+        data: null,
+      });
+    }
     const hashedPassword = await hashPassword(password);
 
     const user = new User({
       name,
       email,
       password: hashedPassword,
-      avatar,
       role: 'SELLER',
       phone,
+      bankName,
+      bankAccountName,
+      bankAccountNumber,
     });
 
     user.password = await hashPassword(password);
@@ -169,8 +185,7 @@ exports.registerSeller = async (req, res) => {
             <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 25px 0;">
             <p style="font-size: 12px; color: #718096;">Nếu bạn không yêu cầu email này, vui lòng bỏ qua nó.</p>
           </div>
-        </body>
-        </html>
+        </body>       
       `,
     });
 
@@ -242,8 +257,6 @@ exports.verifyEmail = async (req, res) => {
       });
     }
 
-    const interests = await Interest.find();
-
     res.status(200).json({
       status: true,
       statusCode: 200,
@@ -251,7 +264,6 @@ exports.verifyEmail = async (req, res) => {
       data: {
         user,
         accessToken,
-        interests,
         needSetInterests: true,
       },
     });
@@ -277,7 +289,10 @@ exports.login = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).populate(
+      'interests',
+      'name emoji'
+    );
     if (!user) {
       return res.status(400).json({
         status: false,
@@ -296,7 +311,14 @@ exports.login = async (req, res) => {
         data: null,
       });
     }
-
+    if (user.role === 'CUSTOMER' && user.interests.length === 0) {
+      return res.status(403).json({
+        status: false,
+        statusCode: 403,
+        message: 'Please set your interests before logging in',
+        data: null,
+      });
+    }
     if (!user.isVerified) {
       return res.status(403).json({
         status: false,
@@ -313,14 +335,7 @@ exports.login = async (req, res) => {
         data: null,
       });
     }
-    if (user.isDeleted) {
-      return res.status(403).json({
-        status: false,
-        statusCode: 403,
-        message: 'Your account has been deleted',
-        data: null,
-      });
-    }
+
     const accessToken = generateToken(user._id, user.role, user.email);
 
     await user.save();

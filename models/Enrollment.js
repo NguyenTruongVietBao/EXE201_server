@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 
+// User A đã sở hữu Document B vào lúc ...
 const enrollmentSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,

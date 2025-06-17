@@ -2,6 +2,7 @@ const Interest = require('../models/Interest');
 const User = require('../models/User');
 const Document = require('../models/Document');
 const { normalizeString } = require('../utils');
+const Group = require('../models/Group');
 
 exports.getAllInterests = async (req, res) => {
   try {
@@ -20,6 +21,23 @@ exports.getAllInterests = async (req, res) => {
       message: 'Internal server error',
       data: null,
     });
+  }
+};
+exports.getMyInterests = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const userInterests = await User.findById(userId).populate('interests');
+    const interests = await Interest.find({
+      _id: { $in: userInterests.interests },
+    });
+    res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Get my interests successfully',
+      data: interests,
+    });
+  } catch (error) {
+    console.log('ERROR', error);
   }
 };
 exports.createInterest = async (req, res) => {
@@ -105,10 +123,10 @@ exports.updateInterest = async (req, res) => {
     });
   }
 };
-exports.getRecommendedDocumentsAndUsers = async (req, res) => {
+exports.getRecommendedDocsUsersGroups = async (req, res) => {
   try {
     const currentUserId = req.user._id;
-    const { minSharedInterests = 2, limit = 10 } = req.query;
+    const { minSharedInterests = 3, limit = 10 } = req.query;
 
     // Lấy thông tin user hiện tại với interests
     const currentUser = await User.findById(currentUserId)
@@ -127,6 +145,7 @@ exports.getRecommendedDocumentsAndUsers = async (req, res) => {
         data: {
           recommendedDocuments: [],
           recommendedUsers: [],
+          recommendedGroups: [],
           userInterests: [],
         },
       });
@@ -141,9 +160,7 @@ exports.getRecommendedDocumentsAndUsers = async (req, res) => {
       {
         $match: {
           author: { $ne: currentUserId }, // Không bao gồm tài liệu của chính user
-          isPublic: true,
-          isBanned: false,
-          isDeleted: false,
+          status: 'APPROVED',
           interests: { $in: userInterestIds },
         },
       },
@@ -220,7 +237,6 @@ exports.getRecommendedDocumentsAndUsers = async (req, res) => {
         $match: {
           _id: { $ne: currentUserId },
           isBanned: false,
-          isDeleted: false,
           interests: { $in: userInterestIds },
         },
       },
@@ -278,18 +294,118 @@ exports.getRecommendedDocumentsAndUsers = async (req, res) => {
       },
     ]);
 
+    // Tìm groups có chung ít nhất minSharedInterests sở thích
+    const recommendedGroups = await Group.aggregate([
+      {
+        $match: {
+          // Không lấy groups mà user đã là thành viên
+          'members.userId': { $ne: currentUserId },
+          interests: { $in: userInterestIds },
+        },
+      },
+      {
+        $addFields: {
+          sharedInterestsCount: {
+            $size: {
+              $setIntersection: ['$interests', userInterestIds],
+            },
+          },
+          currentMemberCount: { $size: '$members' },
+        },
+      },
+      {
+        $match: {
+          sharedInterestsCount: { $gte: parseInt(minSharedInterests) },
+          // Chỉ lấy groups chưa đầy
+          $expr: { $lt: ['$currentMemberCount', '$maxMembers'] },
+        },
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'createdBy',
+          foreignField: '_id',
+          as: 'createdBy',
+          pipeline: [{ $project: { name: 1, avatar: 1, email: 1 } }],
+        },
+      },
+      {
+        $lookup: {
+          from: 'interests',
+          localField: 'interests',
+          foreignField: '_id',
+          as: 'interestDetails',
+          pipeline: [{ $project: { name: 1, emoji: 1 } }],
+        },
+      },
+      {
+        $addFields: {
+          createdBy: { $arrayElemAt: ['$createdBy', 0] },
+          matchPercentage: {
+            $multiply: [
+              { $divide: ['$sharedInterestsCount', userInterestIds.length] },
+              100,
+            ],
+          },
+          // Tính compatibility score
+          compatibilityScore: {
+            $multiply: [
+              '$sharedInterestsCount',
+              {
+                $cond: {
+                  if: {
+                    $lt: [
+                      '$currentMemberCount',
+                      { $multiply: ['$maxMembers', 0.8] },
+                    ],
+                  },
+                  then: 1.2, // Bonus cho groups còn nhiều chỗ trống
+                  else: 1.0,
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        $sort: {
+          compatibilityScore: -1,
+          sharedInterestsCount: -1,
+          createdAt: -1,
+        },
+      },
+      {
+        $limit: parseInt(limit),
+      },
+      {
+        $project: {
+          name: 1,
+          description: 1,
+          createdBy: 1,
+          maxMembers: 1,
+          currentMemberCount: 1,
+          sharedInterestsCount: 1,
+          matchPercentage: 1,
+          compatibilityScore: 1,
+          createdAt: 1,
+          interestDetails: 1,
+        },
+      },
+    ]);
+
     // Thống kê thêm
     const totalDocuments = await Document.countDocuments({
       author: { $ne: currentUserId },
-      isPublic: true,
-      isBanned: false,
-      isDeleted: false,
+      status: 'APPROVED',
     });
 
     const totalUsers = await User.countDocuments({
       _id: { $ne: currentUserId },
       isBanned: false,
-      isDeleted: false,
+    });
+
+    const totalGroups = await Group.countDocuments({
+      'members.userId': { $ne: currentUserId },
     });
 
     res.status(200).json({
@@ -297,11 +413,6 @@ exports.getRecommendedDocumentsAndUsers = async (req, res) => {
       statusCode: 200,
       message: 'Lấy đề xuất thành công',
       data: {
-        userInfo: {
-          name: currentUser.name,
-          interests: currentUser.interests,
-          totalInterests: currentUser.interests.length,
-        },
         recommendedDocuments: {
           items: recommendedDocuments,
           count: recommendedDocuments.length,
@@ -311,6 +422,11 @@ exports.getRecommendedDocumentsAndUsers = async (req, res) => {
           items: recommendedUsers,
           count: recommendedUsers.length,
           totalAvailable: totalUsers,
+        },
+        recommendedGroups: {
+          items: recommendedGroups,
+          count: recommendedGroups.length,
+          totalAvailable: totalGroups,
         },
         searchCriteria: {
           minSharedInterests: parseInt(minSharedInterests),
@@ -324,6 +440,438 @@ exports.getRecommendedDocumentsAndUsers = async (req, res) => {
       status: false,
       statusCode: 500,
       message: 'Lỗi server khi lấy đề xuất',
+      data: null,
+    });
+  }
+};
+exports.getPriorityDocuments = async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    const { page = 1, limit = 12, isFree } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Lấy interests của user hiện tại
+    const currentUser = await User.findById(currentUserId).select('interests');
+    const userInterestIds = currentUser?.interests || [];
+
+    // Không cần điều kiện tối thiểu, lấy tất cả và sắp xếp theo ưu tiên
+
+    // Build match conditions
+    const matchConditions = {
+      status: 'APPROVED',
+      author: { $ne: currentUserId },
+    };
+
+    // Add isFree filter if specified
+    if (isFree !== undefined) {
+      matchConditions.isFree = isFree === 'true';
+    }
+
+    // Lấy documents với ưu tiên theo interests chung
+    const documents = await Document.aggregate([
+      {
+        $match: matchConditions,
+      },
+      {
+        $addFields: {
+          sharedInterests: {
+            $setIntersection: ['$interests', userInterestIds],
+          },
+        },
+      },
+      {
+        $addFields: {
+          // Tính số interests chung
+          sharedInterestsCount: {
+            $size: '$sharedInterests',
+          },
+          // Tính tỷ lệ phần trăm phù hợp
+          matchPercentage: {
+            $multiply: [
+              {
+                $divide: [
+                  { $size: '$sharedInterests' },
+                  { $literal: userInterestIds.length },
+                ],
+              },
+              100,
+            ],
+          },
+        },
+      },
+      {
+        $sort: {
+          sharedInterestsCount: -1, // Ưu tiên theo interests chung
+          createdAt: -1, // Sau đó theo thời gian
+        },
+      },
+      {
+        $skip: skip,
+      },
+      {
+        $limit: parseInt(limit),
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'author',
+          foreignField: '_id',
+          as: 'author',
+          pipeline: [{ $project: { name: 1, avatar: 1, email: 1 } }],
+        },
+      },
+      {
+        $lookup: {
+          from: 'interests',
+          localField: 'interests',
+          foreignField: '_id',
+          as: 'interests',
+          pipeline: [{ $project: { name: 1, emoji: 1 } }],
+        },
+      },
+      {
+        $addFields: {
+          author: { $arrayElemAt: ['$author', 0] },
+        },
+      },
+      {
+        $project: {
+          title: 1,
+          description: 1,
+          price: 1,
+          discount: 1,
+          isFree: 1,
+          imageUrls: 1,
+          author: 1,
+          interests: 1,
+          sharedInterestsCount: 1,
+          matchPercentage: { $round: ['$matchPercentage', 1] },
+          createdAt: 1,
+        },
+      },
+    ]);
+
+    // Count total documents
+    const totalDocumentsCount = await Document.aggregate([
+      { $match: matchConditions },
+      {
+        $addFields: {
+          sharedInterests: {
+            $setIntersection: ['$interests', userInterestIds],
+          },
+        },
+      },
+      {
+        $addFields: {
+          sharedInterestsCount: { $size: '$sharedInterests' },
+        },
+      },
+      {
+        $count: 'total',
+      },
+    ]);
+
+    const totalDocuments = totalDocumentsCount[0]?.total || 0;
+    const totalPages = Math.ceil(totalDocuments / parseInt(limit));
+
+    res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Lấy danh sách documents theo ưu tiên thành công',
+      data: {
+        documents,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalDocuments,
+          hasNextPage: parseInt(page) < totalPages,
+          hasPrevPage: parseInt(page) > 1,
+        },
+      },
+    });
+  } catch (error) {
+    console.log('ERROR', error);
+    res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi server khi lấy danh sách documents',
+      data: null,
+    });
+  }
+};
+exports.getPriorityUsers = async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    const { page = 1, limit = 12, role } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Lấy interests của user hiện tại
+    const currentUser = await User.findById(currentUserId)
+      .select('interests')
+      .populate('interests', 'name emoji');
+    const userInterestIds =
+      currentUser?.interests?.map((interest) => interest._id) || [];
+
+    // Không cần điều kiện tối thiểu, lấy tất cả và sắp xếp theo ưu tiên
+
+    // Build match conditions
+    const matchConditions = {
+      _id: { $ne: currentUserId }, // Loại bỏ user hiện tại
+      isVerified: true, // Chỉ lấy user đã verified
+      isBanned: false, // Loại bỏ user bị ban
+      interests: { $exists: true, $ne: [] }, // Phải có interests
+    };
+
+    // Add role filter if specified
+    if (role) {
+      matchConditions.role = role;
+    }
+
+    // Lấy users với ưu tiên theo interests chung
+    const users = await User.aggregate([
+      {
+        $match: matchConditions,
+      },
+      {
+        $addFields: {
+          sharedInterests: {
+            $setIntersection: ['$interests', userInterestIds],
+          },
+        },
+      },
+      {
+        $addFields: {
+          // Tính số interests chung
+          sharedInterestsCount: {
+            $size: '$sharedInterests',
+          },
+          // Tính tỷ lệ phần trăm phù hợp
+          matchPercentage: {
+            $multiply: [
+              {
+                $divide: [
+                  { $size: '$sharedInterests' },
+                  { $literal: userInterestIds.length },
+                ],
+              },
+              100,
+            ],
+          },
+        },
+      },
+
+      {
+        $sort: {
+          sharedInterestsCount: -1, // Ưu tiên theo interests chung
+          createdAt: -1, // Sau đó theo thời gian tham gia
+        },
+      },
+      {
+        $skip: skip,
+      },
+      {
+        $limit: parseInt(limit),
+      },
+      {
+        $lookup: {
+          from: 'interests',
+          localField: 'interests',
+          foreignField: '_id',
+          as: 'interests',
+          pipeline: [{ $project: { name: 1, emoji: 1 } }],
+        },
+      },
+      {
+        $project: {
+          name: 1,
+          email: 1,
+          avatar: 1,
+          interests: 1,
+          sharedInterestsCount: 1,
+          matchPercentage: { $round: ['$matchPercentage', 1] },
+          createdAt: 1,
+        },
+      },
+    ]);
+
+    // Count total users
+    const totalUsersCount = await User.aggregate([
+      { $match: matchConditions },
+      {
+        $addFields: {
+          sharedInterests: {
+            $setIntersection: ['$interests', userInterestIds],
+          },
+        },
+      },
+      {
+        $addFields: {
+          sharedInterestsCount: { $size: '$sharedInterests' },
+        },
+      },
+      {
+        $count: 'total',
+      },
+    ]);
+
+    const totalUsers = totalUsersCount[0]?.total || 0;
+    const totalPages = Math.ceil(totalUsers / parseInt(limit));
+
+    res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Lấy danh sách users theo ưu tiên thành công',
+      data: {
+        users,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalUsers,
+          hasNextPage: parseInt(page) < totalPages,
+          hasPrevPage: parseInt(page) > 1,
+        },
+      },
+    });
+  } catch (error) {
+    console.log('ERROR', error);
+    res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi server khi lấy danh sách users',
+      data: null,
+    });
+  }
+};
+exports.getPriorityGroups = async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    const { page = 1, limit = 12 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Lấy interests của user hiện tại
+    const currentUser = await User.findById(currentUserId).select('interests');
+    const userInterestIds = currentUser?.interests || [];
+
+    // Không cần điều kiện tối thiểu, lấy tất cả và sắp xếp theo ưu tiên
+
+    // Lấy tất cả groups và sắp xếp theo interests chung
+    const groups = await Group.aggregate([
+      {
+        $addFields: {
+          // Tính số interests chung
+          sharedInterestsCount: {
+            $size: {
+              $setIntersection: ['$interests', userInterestIds],
+            },
+          },
+          // Số lượng thành viên hiện tại
+          currentMemberCount: { $size: '$members' },
+        },
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'createdBy',
+          foreignField: '_id',
+          as: 'createdBy',
+          pipeline: [{ $project: { name: 1, avatar: 1, email: 1 } }],
+        },
+      },
+      {
+        $lookup: {
+          from: 'interests',
+          localField: 'interests',
+          foreignField: '_id',
+          as: 'interests',
+          pipeline: [{ $project: { name: 1, emoji: 1 } }],
+        },
+      },
+      {
+        $addFields: {
+          createdBy: { $arrayElemAt: ['$createdBy', 0] },
+          // Tính compatibility score (có thể mở rộng thêm logic)
+          compatibilityScore: {
+            $multiply: [
+              '$sharedInterestsCount',
+              // Ưu tiên groups chưa đầy thành viên
+              {
+                $cond: {
+                  if: { $lt: ['$currentMemberCount', '$maxMembers'] },
+                  then: 1.2,
+                  else: 0.8,
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        $sort: {
+          compatibilityScore: -1, // Sắp xếp theo độ phù hợp
+          sharedInterestsCount: -1, // Sau đó theo số interests chung
+          createdAt: -1, // Cuối cùng theo thời gian tạo
+        },
+      },
+      { $skip: skip },
+      { $limit: parseInt(limit) },
+      {
+        $project: {
+          name: 1,
+          description: 1,
+          createdBy: 1,
+          interests: 1,
+          maxMembers: 1,
+          currentMemberCount: 1,
+          sharedInterestsCount: 1,
+          compatibilityScore: 1,
+          createdAt: 1,
+          // Thêm flag cho biết user đã join chưa
+          isMember: {
+            $in: [currentUserId, '$members.userId'],
+          },
+        },
+      },
+    ]);
+
+    // Đếm tổng số groups (cho phân trang)
+    const totalCountResult = await Group.aggregate([
+      {
+        $addFields: {
+          sharedInterestsCount: {
+            $size: {
+              $setIntersection: ['$interests', userInterestIds],
+            },
+          },
+        },
+      },
+      {
+        $count: 'total',
+      },
+    ]);
+
+    const totalCount = totalCountResult[0]?.total || 0;
+
+    res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Lấy danh sách groups theo ưu tiên thành công',
+      data: {
+        groups,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalCount / parseInt(limit)),
+          totalCount,
+          limit: parseInt(limit),
+        },
+        userInterestsCount: userInterestIds.length,
+      },
+    });
+  } catch (error) {
+    console.log('ERROR', error);
+    res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi server khi lấy danh sách groups',
       data: null,
     });
   }

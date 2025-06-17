@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 
+// User A đã trả tiền cho Document B vào lúc ...
 const paymentSchema = new mongoose.Schema(
   {
     userId: {
@@ -12,8 +13,9 @@ const paymentSchema = new mongoose.Schema(
       ref: 'Document',
       required: true,
     },
-    amount: {
-      type: Number,
+    sellerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
       required: true,
     },
     paymentMethod: {
@@ -21,21 +23,23 @@ const paymentSchema = new mongoose.Schema(
       enum: ['MOMO', 'ZALOPAY', 'BANK_TRANSFER'],
       default: 'BANK_TRANSFER',
     },
-    bankName: {
-      type: String,
-      default: '',
+    amount: {
+      type: Number,
+      required: true,
     },
-    bankAccountName: {
-      type: String,
-      default: '',
-    },
-    bankAccountNumber: {
+    transactionCode: {
       type: String,
       default: '',
     },
     status: {
       type: String,
-      enum: ['PENDING', 'COMPLETED', 'FAILED'],
+      enum: [
+        'PENDING',
+        'AWAITING_CONFIRMATION',
+        'COMPLETED',
+        'FAILED',
+        'CANCELLED',
+      ],
       default: 'PENDING',
     },
   },

@@ -15,6 +15,7 @@ const router = express.Router();
 
 router.get('/', getAllUsers);
 router.get('/profile', protectRoute, getProfile);
+
 router.get('/:id', getUserById);
 router.put('/:id/set-interests', setUserInterests);
 router.put('/:id/update-profile', updateProfile);

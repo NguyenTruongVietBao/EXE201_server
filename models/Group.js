@@ -10,10 +10,24 @@ const groupSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    maxMembers: {
+      type: Number,
+      default: 100,
+      min: 2,
+      max: 1000,
+    },
     members: [
       {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
+        userId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          required: true,
+        },
         joinDate: {
           type: Date,
           default: Date.now,
