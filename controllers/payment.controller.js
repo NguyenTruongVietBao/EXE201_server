@@ -180,7 +180,7 @@ exports.handlePaymentCallback = async (req, res) => {
       platformAmount,
       status: 'PENDING',
       // releaseDate: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h later
-      releaseDate: new Date(Date.now() + 60 * 1000), // 1m later
+      releaseDate: Date.now() + 60 * 1000, // 1m later
     });
     await commission.save();
 
@@ -376,7 +376,7 @@ exports.getSellerWallet = async (req, res) => {
 // Cron job để release commission sau 24h
 exports.releaseCommissions = async () => {
   try {
-    const now = new Date();
+    const now = Date.now();
     const commissionsToRelease = await Commission.find({
       status: 'PENDING',
       releaseDate: { $lte: now },
@@ -503,24 +503,14 @@ exports.processWithdrawalRequest = async (req, res) => {
     });
 
     if (status === 'APPROVED') {
-      // Cập nhật ví seller: chỉ cộng vào totalWithdrawn
-      // (availableBalance đã bị trừ khi tạo withdrawal request)
       if (sellerWallet) {
         sellerWallet.totalWithdrawn += withdrawalRequest.amount;
         await sellerWallet.save();
       }
 
-      // Cập nhật platform wallet: trừ tiền từ availableBalance
-      // const platformWallet = await PlatformWallet.findOne();
-      // if (platformWallet) {
-      //   platformWallet.availableBalance -= withdrawalRequest.amount;
-      //   await platformWallet.save();
-      // }
-
       withdrawalRequest.status = 'COMPLETED';
       await withdrawalRequest.save();
     } else if (status === 'REJECTED') {
-      // Hoàn tiền về availableBalance của seller
       if (sellerWallet) {
         sellerWallet.availableBalance += withdrawalRequest.amount;
         await sellerWallet.save();
@@ -586,8 +576,8 @@ exports.getPaymentStats = async (req, res) => {
     const dateFilter = {};
     if (startDate && endDate) {
       dateFilter.createdAt = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate),
+        $gte: new Date(startDate).toLocaleString(),
+        $lte: new Date(endDate).toLocaleString(),
       };
     }
 

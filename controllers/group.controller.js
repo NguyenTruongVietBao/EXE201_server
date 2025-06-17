@@ -27,7 +27,7 @@ exports.createGroup = async (req, res) => {
         {
           userId: createdBy,
           isAdmin: true, // Creator là admin
-          joinDate: new Date(),
+          joinDate: new Date().toLocaleString(),
         },
       ],
     });
@@ -199,7 +199,7 @@ exports.acceptJoinRequest = async (req, res) => {
     group.members.push({
       userId: joinRequest.userId._id,
       isAdmin: false,
-      joinDate: new Date(),
+      joinDate: new Date().toLocaleString(),
     });
     await group.save();
 

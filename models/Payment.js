@@ -42,6 +42,10 @@ const paymentSchema = new mongoose.Schema(
       ],
       default: 'PENDING',
     },
+    paymentDate: {
+      type: Date,
+      default: Date.now,
+    },
   },
   { timestamps: true }
 );

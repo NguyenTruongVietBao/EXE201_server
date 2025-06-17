@@ -1,26 +1,23 @@
 const mongoose = require('mongoose');
 
-const conversationSchema = new mongoose.Schema(
-  {
-    participants: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true,
-      },
-    ],
-    lastMessage: {
+const conversationSchema = new mongoose.Schema({
+  participants: [
+    {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Message',
-      default: null,
+      ref: 'User',
+      required: true,
     },
-    lastActivity: {
-      type: Date,
-      default: Date.now,
-    },
+  ],
+  lastMessage: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Message',
+    default: null,
   },
-  { timestamps: true }
-);
+  lastActivity: {
+    type: Date,
+    default: Date.now,
+  },
+});
 
 // Index để tìm conversation giữa 2 users
 conversationSchema.index({ participants: 1 });

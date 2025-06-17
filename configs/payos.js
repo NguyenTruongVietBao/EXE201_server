@@ -8,7 +8,7 @@ const payos = new PayOS(
 
 const createPayment = async (paymentData, userId, finalPrice) => {
   const body = {
-    orderCode: Number(String(Date.now()).slice(-6)),
+    orderCode: Number(Date.now()),
     amount: Number(finalPrice),
     description: paymentData.title,
     items: [

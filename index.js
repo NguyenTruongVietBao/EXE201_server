@@ -1,5 +1,5 @@
 require('dotenv').config();
-process.env.TZ = process.env.TZ || 'Asia/Ho_Chi_Minh';
+process.env.TZ = 'Asia/Ho_Chi_Minh';
 
 const express = require('express');
 const cors = require('cors');
@@ -49,7 +49,8 @@ socketHandler(io);
 
 connectDB();
 
-cron.schedule('*/30 * * * * *', async () => {
+// Cron job chạy mỗi 60s để kiểm tra và release commission
+cron.schedule('*/60 * * * * *', async () => {
   await releaseCommissions();
 });
 

@@ -22,7 +22,7 @@ const commissionSchema = new mongoose.Schema(
     },
     releaseDate: {
       type: Date,
-      default: () => new Date(Date.now() + 60 * 1000), // 1 phút sau
+      default: Date.now() + 24 * 60 * 60 * 1000, // 1d later
     },
   },
   { timestamps: true }

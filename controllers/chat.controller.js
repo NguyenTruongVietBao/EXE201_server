@@ -319,7 +319,7 @@ exports.sendMessage = async (req, res) => {
 
     // Cập nhật conversation
     conversation.lastMessage = message._id;
-    conversation.lastActivity = new Date();
+    conversation.lastActivity = new Date().toLocaleString();
     await conversation.save();
 
     // Populate message để trả về
