@@ -1,5 +1,8 @@
 const express = require('express');
-const { protectRoute } = require('../middlewares/auth.middleware');
+const {
+  protectRoute,
+  authorizeRole,
+} = require('../middlewares/auth.middleware');
 const {
   buyDocument,
   handlePaymentCallback,
@@ -11,7 +14,6 @@ const {
   getPlatformWallet,
   getPaymentStats,
   getMyPurchasedDocuments,
-  checkDocumentAccess,
 } = require('../controllers/payment.controller');
 
 const router = express.Router();
@@ -24,33 +26,56 @@ router.get('/callback', handlePaymentCallback);
 
 // API cho user
 router.get('/my-purchases', protectRoute, getMyPurchasedDocuments);
-router.get('/check-access/:documentId', protectRoute, checkDocumentAccess);
 
-// API cho seller
-router.get('/seller/seller-wallet', protectRoute, getSellerWallet);
+// SELLER - Lấy thông tin ví
+router.get(
+  '/seller/seller-wallet',
+  protectRoute,
+  authorizeRole('SELLER'),
+  getSellerWallet
+);
+// SELLER - Tạo yêu cầu rút tiền
 router.post(
   '/seller/withdrawal-request',
   protectRoute,
+  authorizeRole('SELLER'),
   createWithdrawalRequest
 );
+// SELLER - Danh sách yêu cầu rút tiền của tôi
 router.get(
   '/seller/withdrawal-requests',
   protectRoute,
+  authorizeRole('SELLER'),
   getMyWithdrawalRequests
 );
 
-// API cho admin
+// ADMIN - Lấy danh sách yêu cầu rút tiền
 router.get(
   '/admin/withdrawal-requests',
   protectRoute,
+  authorizeRole('ADMIN'),
   getAllWithdrawalRequests
 );
+// ADMIN - Xử lý yêu cầu rút tiền
 router.put(
   '/admin/withdrawal-request/:id',
   protectRoute,
+  authorizeRole('ADMIN'),
   processWithdrawalRequest
-); // TODO
-router.get('/admin/platform-wallet', protectRoute, getPlatformWallet);
-router.get('/admin/stats', protectRoute, getPaymentStats);
+);
+// ADMIN - Lấy thông tin ví platform
+router.get(
+  '/admin/platform-wallet',
+  protectRoute,
+  authorizeRole('ADMIN'),
+  getPlatformWallet
+);
+// ADMIN - Lấy thống kê payment
+router.get(
+  '/admin/stats',
+  protectRoute,
+  authorizeRole('ADMIN'),
+  getPaymentStats
+);
 
 module.exports = router;

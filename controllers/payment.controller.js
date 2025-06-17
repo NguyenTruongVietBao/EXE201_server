@@ -682,36 +682,3 @@ exports.getMyPurchasedDocuments = async (req, res) => {
     });
   }
 };
-
-// Kiểm tra xem đã mua khóa học chưa
-exports.checkDocumentAccess = async (req, res) => {
-  try {
-    const { documentId } = req.params;
-    const userId = req.user._id;
-
-    const enrollment = await Enrollment.findOne({
-      userId,
-      documentId,
-    });
-
-    const hasAccess = !!enrollment;
-
-    return res.status(200).json({
-      status: true,
-      statusCode: 200,
-      message: 'Kiểm tra xem đã mua khóa học chưa thành công',
-      data: {
-        hasAccess,
-        enrollment: hasAccess ? enrollment : null,
-      },
-    });
-  } catch (error) {
-    console.error('ERROR checkDocumentAccess:', error);
-    return res.status(500).json({
-      status: false,
-      statusCode: 500,
-      message: 'Lỗi hệ thống',
-      data: null,
-    });
-  }
-};

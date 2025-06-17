@@ -277,10 +277,11 @@ exports.unbanUser = async (req, res) => {
 };
 exports.getProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).populate(
-      'interests',
-      'name emoji'
-    );
+    const user = await User.findById(req.user._id)
+      .populate('interests', 'name emoji')
+      .populate('documents', 'title interests')
+      .populate('groups', 'name');
+
     if (!user) {
       return res.status(404).json({
         status: false,

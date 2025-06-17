@@ -477,8 +477,19 @@ exports.deleteDocument = async (req, res) => {
 };
 exports.getDocumentByInterestId = async (req, res) => {
   try {
-    const { interestId } = req.params;
-    const documents = await Document.find({ interests: interestId });
+    const { id } = req.params;
+    const documents = await Document.find({ interests: id })
+      .populate('author', 'name email avatar documents')
+      .populate('interests', 'name emoji')
+      .populate('feedback.user', 'name email avatar');
+    if (!documents) {
+      return res.status(404).json({
+        status: false,
+        statusCode: 404,
+        message: 'Không tìm thấy tài liệu',
+        data: null,
+      });
+    }
     res.status(200).json({
       status: true,
       statusCode: 200,
@@ -696,7 +707,7 @@ exports.getFeedbackByDocumentId = async (req, res) => {
     });
   }
 };
-exports.enrollDocument = async (req, res) => {
+exports.enrollFreeDocument = async (req, res) => {
   try {
     const { id } = req.params;
     const document = await Document.findById(id);
@@ -708,28 +719,35 @@ exports.enrollDocument = async (req, res) => {
         data: null,
       });
     }
-    if (document.isFree) {
-      const hasEnrollment = await Enrollment.findOne({
-        document: id,
-        user: req.user._id,
+    const hasEnrollment = await Enrollment.findOne({
+      documentId: id,
+      userId: req.user._id,
+    });
+    if (hasEnrollment) {
+      return res.status(400).json({
+        status: false,
+        statusCode: 400,
+        message: 'Bạn đã đăng ký khóa học này',
+        data: null,
       });
-      if (hasEnrollment) {
-        return res.status(400).json({
-          status: false,
-          statusCode: 400,
-          message: 'Bạn đã đăng ký khóa học này',
-          data: null,
-        });
-      }
+    }
+    if (document.isFree) {
       const enrollment = await Enrollment.create({
-        document: id,
-        user: req.user._id,
+        documentId: id,
+        userId: req.user._id,
       });
       res.status(200).json({
         status: true,
         statusCode: 200,
         message: 'Đăng ký khóa học thành công',
         data: enrollment,
+      });
+    } else {
+      return res.status(400).json({
+        status: false,
+        statusCode: 400,
+        message: 'Mua khóa học để tải tài liệu',
+        data: null,
       });
     }
   } catch (error) {
@@ -746,6 +764,29 @@ exports.downloadDocument = async (req, res) => {
   try {
     const { id: documentId } = req.params;
     const userId = req.user?._id;
+    // Check if document exists
+    const document = await Document.findById(documentId);
+    if (!document) {
+      return res.status(404).json({
+        status: false,
+        statusCode: 404,
+        message: 'Không tìm thấy tài liệu',
+        data: null,
+      });
+    }
+    // Check if user has enrolled the document
+    const hasEnrollment = await Enrollment.findOne({
+      documentId: documentId,
+      userId: userId,
+    });
+    if (!hasEnrollment) {
+      return res.status(403).json({
+        status: false,
+        statusCode: 403,
+        message: 'Bạn chưa đăng ký khóa học này',
+        data: null,
+      });
+    }
 
     const result = await downloadDocumentAsZip(documentId, userId);
 
@@ -754,6 +795,7 @@ exports.downloadDocument = async (req, res) => {
         status: false,
         statusCode: 500,
         message: 'Lỗi khi tạo file ZIP',
+        data: null,
       });
     }
 
@@ -785,101 +827,6 @@ exports.downloadDocument = async (req, res) => {
       status: false,
       statusCode: error.message.includes('không có quyền') ? 403 : 404,
       message: error.message,
-    });
-  }
-};
-exports.checkDownloadPermission = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userId = req.user?._id;
-
-    if (!id) {
-      return res.status(400).json({
-        status: false,
-        statusCode: 400,
-        message: 'ID tài liệu không hợp lệ',
-        data: null,
-      });
-    }
-
-    const Document = require('../models/Document');
-    const Enrollment = require('../models/Enrollment');
-
-    // Tìm document
-    const document = await Document.findById(id).populate(
-      'author',
-      'name email'
-    );
-    if (!document) {
-      return res.status(404).json({
-        status: false,
-        statusCode: 404,
-        message: 'Không tìm thấy tài liệu',
-        data: null,
-      });
-    }
-
-    let hasPermission = false;
-    let reason = '';
-
-    if (!userId) {
-      // Không đăng nhập - chỉ cho phép tài liệu miễn phí
-      hasPermission = document.isFree || document.price === 0;
-      reason = hasPermission
-        ? 'Tài liệu miễn phí'
-        : 'Cần đăng nhập để truy cập';
-    } else {
-      // Đã đăng nhập - kiểm tra các điều kiện
-      const enrollment = await Enrollment.findOne({ userId, documentId: id });
-      const isAuthor = document.author._id.toString() === userId.toString();
-      const isFree = document.isFree || document.price === 0;
-
-      if (enrollment) {
-        hasPermission = true;
-        reason = 'Đã mua tài liệu';
-      } else if (isAuthor) {
-        hasPermission = true;
-        reason = 'Là tác giả';
-      } else if (isFree) {
-        hasPermission = true;
-        reason = 'Tài liệu miễn phí';
-      } else {
-        hasPermission = false;
-        reason = 'Chưa mua tài liệu';
-      }
-    }
-
-    res.status(200).json({
-      status: true,
-      statusCode: 200,
-      message: 'Kiểm tra quyền download thành công',
-      data: {
-        hasPermission,
-        reason,
-        document: {
-          id: document._id,
-          title: document.title,
-          price: document.price,
-          isFree: document.isFree,
-          author: document.author,
-        },
-        fileCount: {
-          documents: document.documentUrls?.length || 0,
-          images: document.imageUrls?.length || 0,
-          videos: document.videoUrls?.length || 0,
-          total:
-            (document.documentUrls?.length || 0) +
-            (document.imageUrls?.length || 0) +
-            (document.videoUrls?.length || 0),
-        },
-      },
-    });
-  } catch (error) {
-    console.error('Error checking download permission:', error);
-    res.status(500).json({
-      status: false,
-      statusCode: 500,
-      message: 'Lỗi khi kiểm tra quyền download',
       data: null,
     });
   }
@@ -1020,7 +967,6 @@ exports.getRecommendedDocuments = async (req, res) => {
         $count: 'total',
       },
     ]);
-
     const totalDocuments = totalDocumentsCount[0]?.total || 0;
     const totalPages = Math.ceil(totalDocuments / parseInt(limit));
 
@@ -1030,7 +976,6 @@ exports.getRecommendedDocuments = async (req, res) => {
       message: 'Lấy danh sách khóa học gợi ý thành công',
       data: {
         documents,
-        userInterests: userInterestIds.length,
         pagination: {
           currentPage: parseInt(page),
           totalPages,
@@ -1046,6 +991,47 @@ exports.getRecommendedDocuments = async (req, res) => {
       status: false,
       statusCode: 500,
       message: 'Lỗi server khi lấy danh sách khóa học gợi ý',
+      data: null,
+    });
+  }
+};
+exports.getDocsEnrolled = async (req, res) => {
+  try {
+    const { page = 1, limit = 12 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const total = await Enrollment.countDocuments({
+      userId: req.user._id,
+    });
+    const enrollments = await Enrollment.find({
+      userId: req.user._id,
+    })
+      .populate('documentId', 'title author interests')
+      .populate('documentId.author', 'name email avatar')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+    const totalPages = Math.ceil(total / parseInt(limit));
+    res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Lấy danh sách khóa học đã đăng ký thành công',
+      data: {
+        enrollments,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalDocuments: total,
+          hasNextPage: parseInt(page) < totalPages,
+          hasPrevPage: parseInt(page) > 1,
+        },
+      },
+    });
+  } catch (error) {
+    console.log('ERROR getting docs enrolled:', error);
+    res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi server nội bộ',
       data: null,
     });
   }

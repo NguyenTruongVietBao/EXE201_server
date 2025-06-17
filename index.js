@@ -1,4 +1,6 @@
 require('dotenv').config();
+process.env.TZ = process.env.TZ || 'Asia/Ho_Chi_Minh';
+
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
@@ -43,15 +45,11 @@ app.use('/api/groups', groupRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/payments', paymentRoutes);
 
-// Initialize Socket.IO
 socketHandler(io);
 
-// Connect to MongoDB
 connectDB();
 
-// Cron job chạy mỗi 60s để kiểm tra và release commission
-cron.schedule('*/60 * * * * *', async () => {
-  console.log('🔄 Running commission release job...');
+cron.schedule('*/30 * * * * *', async () => {
   await releaseCommissions();
 });
 
