@@ -50,7 +50,8 @@ socketHandler(io);
 connectDB();
 
 // Cron job chạy mỗi 60s để kiểm tra và release commission
-cron.schedule('*/60 * * * * *', async () => {
+cron.schedule('*/30 * * * * *', async () => {
+  console.log('🔄 Running commission release job...');
   await releaseCommissions();
 });
 

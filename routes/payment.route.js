@@ -22,10 +22,10 @@ const router = express.Router();
 router.post('/buy-document/:id', protectRoute, buyDocument);
 
 // Callback từ PayOS sau khi thanh toán
-router.get('/callback', handlePaymentCallback);
+router.post('/callback', handlePaymentCallback);
 
-// API cho user
-router.get('/my-purchases', protectRoute, getMyPurchasedDocuments);
+// Tài liệu đã mua
+router.get('/my-purchased-documents', protectRoute, getMyPurchasedDocuments);
 
 // SELLER - Lấy thông tin ví
 router.get(
@@ -49,32 +49,32 @@ router.get(
   getMyWithdrawalRequests
 );
 
-// ADMIN - Lấy danh sách yêu cầu rút tiền
+// MANAGER - Lấy danh sách yêu cầu rút tiền
 router.get(
-  '/admin/withdrawal-requests',
+  '/manager/withdrawal-requests',
   protectRoute,
-  authorizeRole('ADMIN'),
+  authorizeRole('MANAGER'),
   getAllWithdrawalRequests
 );
-// ADMIN - Xử lý yêu cầu rút tiền
+// MANAGER - Xử lý yêu cầu rút tiền
 router.put(
-  '/admin/withdrawal-request/:id',
+  '/manager/withdrawal-request/:id',
   protectRoute,
-  authorizeRole('ADMIN'),
+  authorizeRole('MANAGER'),
   processWithdrawalRequest
 );
-// ADMIN - Lấy thông tin ví platform
+// MANAGER - Lấy thông tin ví platform
 router.get(
-  '/admin/platform-wallet',
+  '/manager/platform-wallet',
   protectRoute,
-  authorizeRole('ADMIN'),
+  authorizeRole('MANAGER'),
   getPlatformWallet
 );
-// ADMIN - Lấy thống kê payment
+// MANAGER - Lấy thống kê payment
 router.get(
-  '/admin/stats',
+  '/manager/stats',
   protectRoute,
-  authorizeRole('ADMIN'),
+  authorizeRole('MANAGER'),
   getPaymentStats
 );
 

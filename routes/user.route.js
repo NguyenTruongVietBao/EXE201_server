@@ -8,6 +8,8 @@ const {
   unbanUser,
   getCustomerProfile,
   getProfile,
+  getSellerStatistics,
+  getManagerStatistics,
 } = require('../controllers/user.controller');
 const { protectRoute } = require('../middlewares/auth.middleware');
 
@@ -15,6 +17,8 @@ const router = express.Router();
 
 router.get('/', getAllUsers);
 router.get('/profile', protectRoute, getProfile);
+router.get('/seller-statistics', protectRoute, getSellerStatistics);
+router.get('/manager-statistics', protectRoute, getManagerStatistics);
 
 router.get('/:id', getUserById);
 router.put('/:id/set-interests', setUserInterests);

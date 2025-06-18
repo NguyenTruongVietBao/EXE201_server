@@ -126,7 +126,9 @@ exports.updateInterest = async (req, res) => {
 exports.getRecommendedDocsUsersGroups = async (req, res) => {
   try {
     const currentUserId = req.user._id;
-    const { minSharedInterests = 3, limit = 10 } = req.query;
+    const user = await User.findById(currentUserId);
+    const { minSharedInterests = user.interests.length, limit = 10 } =
+      req.query;
 
     // Lấy thông tin user hiện tại với interests
     const currentUser = await User.findById(currentUserId)
@@ -447,19 +449,16 @@ exports.getRecommendedDocsUsersGroups = async (req, res) => {
 exports.getPriorityDocuments = async (req, res) => {
   try {
     const currentUserId = req.user._id;
-    const { page = 1, limit = 12, isFree } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { isFree } = req.query;
 
     // Lấy interests của user hiện tại
     const currentUser = await User.findById(currentUserId).select('interests');
     const userInterestIds = currentUser?.interests || [];
 
-    // Không cần điều kiện tối thiểu, lấy tất cả và sắp xếp theo ưu tiên
-
     // Build match conditions
     const matchConditions = {
       status: 'APPROVED',
-      author: { $ne: currentUserId },
+      author: { $ne: currentUserId }, // Không lấy document của chính mình
     };
 
     // Add isFree filter if specified
@@ -487,15 +486,21 @@ exports.getPriorityDocuments = async (req, res) => {
           },
           // Tính tỷ lệ phần trăm phù hợp
           matchPercentage: {
-            $multiply: [
-              {
-                $divide: [
-                  { $size: '$sharedInterests' },
-                  { $literal: userInterestIds.length },
+            $cond: {
+              if: { $gt: [{ $literal: userInterestIds.length }, 0] },
+              then: {
+                $multiply: [
+                  {
+                    $divide: [
+                      { $size: '$sharedInterests' },
+                      { $literal: userInterestIds.length },
+                    ],
+                  },
+                  100,
                 ],
               },
-              100,
-            ],
+              else: 0,
+            },
           },
         },
       },
@@ -504,12 +509,6 @@ exports.getPriorityDocuments = async (req, res) => {
           sharedInterestsCount: -1, // Ưu tiên theo interests chung
           createdAt: -1, // Sau đó theo thời gian
         },
-      },
-      {
-        $skip: skip,
-      },
-      {
-        $limit: parseInt(limit),
       },
       {
         $lookup: {
@@ -551,43 +550,11 @@ exports.getPriorityDocuments = async (req, res) => {
       },
     ]);
 
-    // Count total documents
-    const totalDocumentsCount = await Document.aggregate([
-      { $match: matchConditions },
-      {
-        $addFields: {
-          sharedInterests: {
-            $setIntersection: ['$interests', userInterestIds],
-          },
-        },
-      },
-      {
-        $addFields: {
-          sharedInterestsCount: { $size: '$sharedInterests' },
-        },
-      },
-      {
-        $count: 'total',
-      },
-    ]);
-
-    const totalDocuments = totalDocumentsCount[0]?.total || 0;
-    const totalPages = Math.ceil(totalDocuments / parseInt(limit));
-
     res.status(200).json({
       status: true,
       statusCode: 200,
-      message: 'Lấy danh sách documents theo ưu tiên thành công',
-      data: {
-        documents,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages,
-          totalDocuments,
-          hasNextPage: parseInt(page) < totalPages,
-          hasPrevPage: parseInt(page) > 1,
-        },
-      },
+      message: 'Đã lấy được ' + documents.length + ' documents',
+      data: documents,
     });
   } catch (error) {
     console.log('ERROR', error);

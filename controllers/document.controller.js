@@ -16,6 +16,7 @@ exports.createDocument = async (req, res) => {
       discount = 0,
       isPublic = false,
       interests = [],
+      isFree,
     } = req.body;
 
     const authorId = req.user._id;
@@ -110,6 +111,7 @@ exports.createDocument = async (req, res) => {
       documentUrls: documentUrls,
       videoUrls: videoUrls,
       isPublic: isPublic,
+      isFree: isFree,
       interests: validInterests,
       author: authorId,
     });
@@ -509,26 +511,20 @@ exports.getDocumentByInterestId = async (req, res) => {
 exports.getMyDocuments = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { page = 1, limit = 10 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
     const documents = await Document.find({ author: userId })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .populate('interests', 'name emoji');
-    const total = await Document.countDocuments({ author: userId });
+      .populate({
+        path: 'interests',
+        select: 'name emoji',
+      })
+      .populate({
+        path: 'author',
+        select: 'name email avatar',
+      });
     res.status(200).json({
       status: true,
       statusCode: 200,
-      message: 'Lấy danh sách tài liệu thành công',
-      data: {
-        documents,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(total / parseInt(limit)),
-          totalDocuments: total,
-          hasMore: parseInt(page) < Math.ceil(total / parseInt(limit)),
-        },
-      },
+      message: 'Tôi có ' + documents.length + ' tài liệu',
+      data: documents,
     });
   } catch (error) {
     console.log('ERROR getting my documents:', error);
@@ -997,34 +993,40 @@ exports.getRecommendedDocuments = async (req, res) => {
 };
 exports.getDocsEnrolled = async (req, res) => {
   try {
-    const { page = 1, limit = 12 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const total = await Enrollment.countDocuments({
-      userId: req.user._id,
-    });
+    // Fetch enrollments with populated document details, author, and interests
     const enrollments = await Enrollment.find({
       userId: req.user._id,
     })
-      .populate('documentId', 'title author interests')
-      .populate('documentId.author', 'name email avatar')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
-    const totalPages = Math.ceil(total / parseInt(limit));
+      .populate({
+        path: 'documentId',
+        select:
+          '_id title description price discount duration download imageUrls documentUrls videoUrls interests author status isFree feedback createdAt updatedAt',
+        populate: [
+          {
+            path: 'author',
+            select: 'name email avatar',
+          },
+          {
+            path: 'interests',
+            select: 'name emoji',
+          },
+        ],
+      })
+      .lean();
+
+    // Map enrollments to documents, including enrollmentDate
+    const documents = enrollments
+      .filter((enrollment) => enrollment.documentId) // Remove enrollments with missing documents
+      .map((enrollment) => ({
+        ...enrollment.documentId,
+        enrollmentDate: enrollment.enrollmentDate,
+      }));
+
     res.status(200).json({
       status: true,
       statusCode: 200,
-      message: 'Lấy danh sách khóa học đã đăng ký thành công',
-      data: {
-        enrollments,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages,
-          totalDocuments: total,
-          hasNextPage: parseInt(page) < totalPages,
-          hasPrevPage: parseInt(page) > 1,
-        },
-      },
+      message: 'Đã lấy được ' + documents.length + ' documents',
+      data: documents,
     });
   } catch (error) {
     console.log('ERROR getting docs enrolled:', error);

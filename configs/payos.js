@@ -15,6 +15,8 @@ const createPayment = async (paymentData, userId, finalPrice) => {
       {
         id: paymentData._id,
         name: paymentData.title,
+        image: paymentData.imageUrls[0],
+        description: paymentData.description,
         quantity: 1,
         price: Number(finalPrice),
         currency: 'VND',
@@ -22,7 +24,6 @@ const createPayment = async (paymentData, userId, finalPrice) => {
     ],
     returnUrl: `${process.env.PAYOS_RETURN_URL}?documentId=${paymentData._id}&paymentId=${paymentData.paymentId}&userId=${userId}`,
     cancelUrl: `${process.env.PAYOS_RETURN_URL}?documentId=${paymentData._id}&paymentId=${paymentData.paymentId}&userId=${userId}&cancel=true`,
-    signature: 'prilabCustomer',
   };
   try {
     const paymentLinkResponse = await payos.createPaymentLink(body);

@@ -112,10 +112,7 @@ exports.buyDocument = async (req, res) => {
 // Xử lý callback từ PayOS
 exports.handlePaymentCallback = async (req, res) => {
   try {
-    const { documentId, code, id, cancel, status, orderCode, paymentId } =
-      req.query;
-
-    console.log('Payment callback:', req.query);
+    const { documentId, code, cancel, status, orderCode, paymentId } = req.body;
 
     if (code !== '00' || status !== 'PAID' || cancel === 'true') {
       // Payment failed or cancelled
@@ -125,9 +122,12 @@ exports.handlePaymentCallback = async (req, res) => {
           transactionCode: orderCode || '',
         });
       }
-      return res.redirect(
-        `${process.env.FRONTEND_URL}/payment-failed?reason=payment_failed`
-      );
+      return res.status(200).json({
+        status: true,
+        statusCode: 200,
+        message: 'Thanh toán thất bại',
+        data: null,
+      });
     }
 
     // Find payment record
@@ -137,16 +137,22 @@ exports.handlePaymentCallback = async (req, res) => {
       .populate('userId');
 
     if (!payment) {
-      return res.redirect(
-        `${process.env.FRONTEND_URL}/payment-failed?reason=payment_not_found`
-      );
+      return res.status(200).json({
+        status: true,
+        statusCode: 200,
+        message: 'Thanh toán thất bại',
+        data: null,
+      });
     }
 
     if (payment.status === 'COMPLETED') {
       // Already processed
-      return res.redirect(
-        `${process.env.FRONTEND_URL}/payment-success?documentId=${documentId}`
-      );
+      return res.status(200).json({
+        status: true,
+        statusCode: 200,
+        message: 'Thanh toán thành công',
+        data: null,
+      });
     }
 
     // Update payment status
@@ -216,14 +222,20 @@ exports.handlePaymentCallback = async (req, res) => {
     }
     await platformWallet.save();
 
-    return res.redirect(
-      `${process.env.FRONTEND_URL}/payment-success?documentId=${documentId}`
-    );
+    return res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Thanh toán thành công',
+      data: null,
+    });
   } catch (error) {
     console.error('ERROR handlePaymentCallback:', error);
-    return res.redirect(
-      `${process.env.FRONTEND_URL}/payment-failed?reason=system_error`
-    );
+    return res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi hệ thống',
+      data: null,
+    });
   }
 };
 
@@ -635,30 +647,54 @@ exports.getMyPurchasedDocuments = async (req, res) => {
   try {
     const userId = req.user._id;
     const { page = 1, limit = 10 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
+    // Fetch enrollments with populated document, author, and interests
     const enrollments = await Enrollment.find({ userId })
       .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
+      .skip(skip)
+      .limit(parseInt(limit))
       .populate({
         path: 'documentId',
-        populate: {
-          path: 'author',
-          select: 'name email avatar',
-        },
+        match: { price: { $gt: 0 } }, // Only include documents with price > 0
+        populate: [
+          {
+            path: 'author',
+            select: 'name email avatar',
+          },
+          {
+            path: 'interests',
+            select: 'name emoji',
+          },
+        ],
       })
-      .populate('userId', 'name email avatar');
+      .populate('userId', 'name email avatar')
+      .lean();
 
-    const total = await Enrollment.countDocuments({ userId });
+    // Filter out enrollments where documentId is null (due to price filter)
+    const validEnrollments = enrollments.filter(
+      (enrollment) => enrollment.documentId
+    );
+
+    // Count total enrollments with non-free documents
+    const total = await Enrollment.countDocuments({
+      userId,
+      documentId: {
+        $in: await Document.find({ price: { $gt: 0 } }).distinct('_id'),
+      },
+    });
 
     return res.status(200).json({
       status: true,
       statusCode: 200,
       message: 'Lấy danh sách khóa học đã mua thành công',
       data: {
-        enrollments,
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
+        documents: validEnrollments.map((enrollment) => ({
+          ...enrollment.documentId,
+          purchaseDate: enrollment.createdAt, // Include purchase date
+        })),
+        totalPages: Math.ceil(total / parseInt(limit)),
+        currentPage: parseInt(page),
         total,
       },
     });
