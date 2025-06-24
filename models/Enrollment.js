@@ -14,7 +14,7 @@ const enrollmentSchema = new mongoose.Schema({
   },
   enrollmentDate: {
     type: Date,
-    default: Date.now,
+    default: new Date(Date.now()),
   },
 });
 

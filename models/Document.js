@@ -53,7 +53,7 @@ const documentSchema = new mongoose.Schema(
         user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         comment: { type: String, trim: true },
         rating: { type: Number, min: 1, max: 5 },
-        createdAt: { type: Date, default: Date.now },
+        createdAt: { type: Date, default: new Date(Date.now()) },
       },
     ],
     interests: [

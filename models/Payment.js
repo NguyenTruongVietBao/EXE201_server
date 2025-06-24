@@ -39,12 +39,13 @@ const paymentSchema = new mongoose.Schema(
         'COMPLETED',
         'FAILED',
         'CANCELLED',
+        'REFUNDED',
       ],
       default: 'PENDING',
     },
     paymentDate: {
       type: Date,
-      default: Date.now,
+      default: new Date(Date.now()),
     },
   },
   { timestamps: true }

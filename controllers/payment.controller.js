@@ -74,12 +74,8 @@ exports.buyDocument = async (req, res) => {
       ...document.toObject(),
       paymentId: payment._id,
     };
-    console.log('🚀 ~ exports.buyDocument= ~ paymentData:', paymentData);
-    const paymentLink = await createPayment(
-      paymentData,
-      req.user._id,
-      finalPrice
-    );
+    const paymentLink = await createPayment(paymentData, req.user, finalPrice);
+    console.log('🚀 ~ exports.buyDocument= ~ paymentLink:', paymentLink);
 
     if (!paymentLink) {
       payment.status = 'FAILED';
@@ -185,8 +181,7 @@ exports.handlePaymentCallback = async (req, res) => {
       sellerAmount,
       platformAmount,
       status: 'PENDING',
-      // releaseDate: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h later
-      releaseDate: Date.now() + 60 * 1000, // 1m later
+      releaseDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
     await commission.save();
 
@@ -388,12 +383,28 @@ exports.getSellerWallet = async (req, res) => {
 // Cron job để release commission sau 24h
 exports.releaseCommissions = async () => {
   try {
-    const now = Date.now();
+    const now = new Date(Date.now());
+    const Refund = require('../models/Refund');
+
     const commissionsToRelease = await Commission.find({
       status: 'PENDING',
       releaseDate: { $lte: now },
     });
+
     for (const commission of commissionsToRelease) {
+      // Kiểm tra xem có refund request nào đang pending cho payment này không
+      const pendingRefund = await Refund.findOne({
+        paymentId: commission.paymentId,
+        status: 'PENDING',
+      });
+
+      if (pendingRefund) {
+        console.log(
+          `⏳ Skipping commission release for payment ${commission.paymentId} - pending refund request exists`
+        );
+        continue;
+      }
+
       // Update commission status
       commission.status = 'RELEASED';
       await commission.save();
@@ -429,32 +440,16 @@ exports.releaseCommissions = async () => {
 // Lấy danh sách yêu cầu rút tiền
 exports.getAllWithdrawalRequests = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status } = req.query;
-
-    const query = {};
-    if (status) {
-      query.status = status;
-    }
-
-    const withdrawalRequests = await WithdrawalRequest.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .populate('sellerId', 'name email avatar')
-      .populate('processedBy', 'name email avatar');
-
-    const total = await WithdrawalRequest.countDocuments(query);
+    const withdrawalRequests = await WithdrawalRequest.find().populate(
+      'sellerId',
+      'name email avatar'
+    );
 
     return res.status(200).json({
       status: true,
       statusCode: 200,
       message: 'Lấy danh sách yêu cầu rút tiền thành công',
-      data: {
-        withdrawalRequests,
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
-        total,
-      },
+      data: withdrawalRequests,
     });
   } catch (error) {
     console.error('ERROR getAllWithdrawalRequests:', error);
@@ -551,6 +546,10 @@ exports.processWithdrawalRequest = async (req, res) => {
 // Lấy thông tin platform wallet
 exports.getPlatformWallet = async (req, res) => {
   try {
+    const Refund = require('../models/Refund');
+    const WithdrawalRequest = require('../models/WithdrawalRequest');
+    const Commission = require('../models/Commission');
+
     let platformWallet = await PlatformWallet.findOne();
     if (!platformWallet) {
       platformWallet = new PlatformWallet({
@@ -559,15 +558,127 @@ exports.getPlatformWallet = async (req, res) => {
         pendingBalance: 0,
         totalCommissionEarned: 0,
         totalRefunded: 0,
+        totalWithdrawals: 0,
       });
       await platformWallet.save();
     }
+
+    // Tính toán lại totalRefunded từ dữ liệu thực tế
+    const totalRefundedAmount = await Refund.aggregate([
+      {
+        $match: {
+          status: 'APPROVED',
+          refundCompletedAt: { $exists: true, $ne: null },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalAmount: { $sum: '$amount' },
+        },
+      },
+    ]);
+
+    // Tính toán totalWithdrawals từ các withdrawal đã completed
+    const totalWithdrawalsAmount = await WithdrawalRequest.aggregate([
+      {
+        $match: {
+          status: 'COMPLETED',
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalAmount: { $sum: '$amount' },
+        },
+      },
+    ]);
+
+    // Tính toán totalCommissionEarned từ dữ liệu thực tế
+    const totalCommissionAmount = await Commission.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalAmount: { $sum: '$amount' },
+        },
+      },
+    ]);
+
+    // Cập nhật các giá trị tính toán được
+    const calculatedTotalRefunded = totalRefundedAmount[0]?.totalAmount || 0;
+    const calculatedTotalWithdrawals =
+      totalWithdrawalsAmount[0]?.totalAmount || 0;
+    const calculatedTotalCommission =
+      totalCommissionAmount[0]?.totalAmount || 0;
+
+    // Cập nhật vào database nếu có sự khác biệt
+    let shouldUpdate = false;
+    const updates = {};
+
+    if (platformWallet.totalRefunded !== calculatedTotalRefunded) {
+      updates.totalRefunded = calculatedTotalRefunded;
+      shouldUpdate = true;
+    }
+
+    if (platformWallet.totalWithdrawals !== calculatedTotalWithdrawals) {
+      updates.totalWithdrawals = calculatedTotalWithdrawals;
+      shouldUpdate = true;
+    }
+
+    if (platformWallet.totalCommissionEarned !== calculatedTotalCommission) {
+      updates.totalCommissionEarned = calculatedTotalCommission;
+      shouldUpdate = true;
+    }
+
+    if (shouldUpdate) {
+      platformWallet = await PlatformWallet.findOneAndUpdate(
+        {},
+        { $set: updates },
+        { new: true, upsert: true }
+      );
+    }
+
+    // Thêm thống kê chi tiết
+    const statistics = {
+      // Số lượng hoàn tiền
+      totalRefundCount: await Refund.countDocuments({ status: 'APPROVED' }),
+      pendingRefundCount: await Refund.countDocuments({ status: 'PENDING' }),
+
+      // Số lượng rút tiền
+      totalWithdrawalCount: await WithdrawalRequest.countDocuments({
+        status: 'COMPLETED',
+      }),
+      pendingWithdrawalCount: await WithdrawalRequest.countDocuments({
+        status: 'PENDING',
+      }),
+
+      // Tỷ lệ
+      refundRate:
+        calculatedTotalCommission > 0
+          ? (
+              (calculatedTotalRefunded / calculatedTotalCommission) *
+              100
+            ).toFixed(2)
+          : 0,
+      withdrawalRate:
+        calculatedTotalCommission > 0
+          ? (
+              (calculatedTotalWithdrawals / calculatedTotalCommission) *
+              100
+            ).toFixed(2)
+          : 0,
+    };
+
+    const responseData = {
+      ...platformWallet.toObject(),
+      statistics,
+    };
 
     return res.status(200).json({
       status: true,
       statusCode: 200,
       message: 'Lấy thông tin ví platform thành công',
-      data: platformWallet,
+      data: responseData,
     });
   } catch (error) {
     console.error('ERROR getPlatformWallet:', error);
@@ -588,8 +699,8 @@ exports.getPaymentStats = async (req, res) => {
     const dateFilter = {};
     if (startDate && endDate) {
       dateFilter.createdAt = {
-        $gte: new Date(startDate).toLocaleString(),
-        $lte: new Date(endDate).toLocaleString(),
+        $gte: new Date(startDate),
+        $lte: new Date(endDate),
       };
     }
 
@@ -700,6 +811,155 @@ exports.getMyPurchasedDocuments = async (req, res) => {
     });
   } catch (error) {
     console.error('ERROR getMyPurchasedDocuments:', error);
+    return res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi hệ thống',
+      data: null,
+    });
+  }
+};
+
+// Kiểm tra payment có thể refund được không
+exports.checkRefundEligibility = async (req, res) => {
+  try {
+    const { paymentId } = req.params;
+    const userId = req.user._id;
+
+    const payment = await Payment.findById(paymentId);
+    if (!payment) {
+      return res.status(404).json({
+        status: false,
+        statusCode: 404,
+        message: 'Không tìm thấy thanh toán',
+        data: null,
+      });
+    }
+
+    // Kiểm tra quyền của customer
+    if (payment.userId.toString() !== userId.toString()) {
+      return res.status(403).json({
+        status: false,
+        statusCode: 403,
+        message: 'Bạn không có quyền kiểm tra thanh toán này',
+        data: null,
+      });
+    }
+
+    const Refund = require('../models/Refund');
+    const { canRefund, reason } = await Refund.canCreateRefund(paymentId);
+
+    // Thêm thông tin về thời gian còn lại
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const hoursRemaining = canRefund
+      ? Math.max(
+          0,
+          Math.ceil(
+            (payment.createdAt.getTime() +
+              24 * 60 * 60 * 1000 -
+              new Date(Date.now())) /
+              (60 * 60 * 1000)
+          )
+        )
+      : 0;
+
+    return res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Kiểm tra tình trạng hoàn tiền thành công',
+      data: {
+        canRefund,
+        reason: canRefund ? 'Có thể tạo yêu cầu hoàn tiền' : reason,
+        payment: {
+          id: payment._id,
+          amount: payment.amount,
+          status: payment.status,
+          createdAt: payment.createdAt,
+        },
+        hoursRemaining,
+      },
+    });
+  } catch (error) {
+    console.error('ERROR checkRefundEligibility:', error);
+    return res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi hệ thống',
+      data: null,
+    });
+  }
+};
+
+// Lấy danh sách payments có thể refund
+exports.getRefundablePayments = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // Tìm payments trong vòng 24h và status COMPLETED
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const payments = await Payment.find({
+      userId,
+      status: 'COMPLETED',
+      createdAt: { $gte: twentyFourHoursAgo },
+    })
+      .sort({ createdAt: -1 })
+      .populate('documentId', 'title price imageUrls')
+      .populate('sellerId', 'name email avatar');
+
+    const Refund = require('../models/Refund');
+
+    // Tìm tất cả refund requests đã bị REJECTED của user
+    const rejectedRefunds = await Refund.find({
+      customerId: userId,
+      status: 'REJECTED',
+    }).select('paymentId');
+
+    const rejectedPaymentIds = new Set(
+      rejectedRefunds.map((refund) => refund.paymentId.toString())
+    );
+
+    // Kiểm tra từng payment xem có thể refund không
+    const refundablePayments = await Promise.all(
+      payments.map(async (payment) => {
+        // Nếu payment đã có refund request bị REJECTED thì không hiển thị
+        if (rejectedPaymentIds.has(payment._id.toString())) {
+          return null;
+        }
+
+        const { canRefund, reason } = await Refund.canCreateRefund(payment._id);
+        const hoursRemaining = Math.max(
+          0,
+          Math.ceil(
+            (payment.createdAt.getTime() +
+              24 * 60 * 60 * 1000 -
+              new Date(Date.now())) /
+              (60 * 60 * 1000)
+          )
+        );
+
+        return {
+          ...payment.toObject(),
+          canRefund,
+          reason: canRefund ? 'Có thể tạo yêu cầu hoàn tiền' : reason,
+          hoursRemaining,
+        };
+      })
+    );
+
+    // Lọc bỏ các payment bị loại trừ (null)
+    const filteredPayments = refundablePayments.filter(
+      (payment) => payment !== null
+    );
+
+    return res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Lấy danh sách thanh toán có thể hoàn tiền thành công',
+      data: filteredPayments,
+    });
+  } catch (error) {
+    console.error('ERROR getRefundablePayments:', error);
     return res.status(500).json({
       status: false,
       statusCode: 500,

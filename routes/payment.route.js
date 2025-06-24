@@ -1,8 +1,5 @@
 const express = require('express');
-const {
-  protectRoute,
-  authorizeRole,
-} = require('../middlewares/auth.middleware');
+const { protectRoute } = require('../middlewares/auth.middleware');
 const {
   buyDocument,
   handlePaymentCallback,
@@ -14,38 +11,37 @@ const {
   getPlatformWallet,
   getPaymentStats,
   getMyPurchasedDocuments,
+  checkRefundEligibility,
+  getRefundablePayments,
 } = require('../controllers/payment.controller');
 
 const router = express.Router();
 
-// Mua khóa học
-router.post('/buy-document/:id', protectRoute, buyDocument);
-
-// Callback từ PayOS sau khi thanh toán
+// CUSTOMER - Callback từ PayOS sau khi thanh toán
 router.post('/callback', handlePaymentCallback);
-
-// Tài liệu đã mua
+// CUSTOMER - Tài liệu đã mua
 router.get('/my-purchased-documents', protectRoute, getMyPurchasedDocuments);
+// CUSTOMER - Kiểm tra payment có thể refund không
+router.get(
+  '/check-refund-eligibility/:paymentId',
+  protectRoute,
+  checkRefundEligibility
+);
+// CUSTOMER - Lấy danh sách payments có thể refund
+router.get('/refundable-payments', protectRoute, getRefundablePayments);
 
 // SELLER - Lấy thông tin ví
-router.get(
-  '/seller/seller-wallet',
-  protectRoute,
-  authorizeRole('SELLER'),
-  getSellerWallet
-);
+router.get('/seller/seller-wallet', protectRoute, getSellerWallet);
 // SELLER - Tạo yêu cầu rút tiền
 router.post(
   '/seller/withdrawal-request',
   protectRoute,
-  authorizeRole('SELLER'),
   createWithdrawalRequest
 );
 // SELLER - Danh sách yêu cầu rút tiền của tôi
 router.get(
   '/seller/withdrawal-requests',
   protectRoute,
-  authorizeRole('SELLER'),
   getMyWithdrawalRequests
 );
 
@@ -53,29 +49,19 @@ router.get(
 router.get(
   '/manager/withdrawal-requests',
   protectRoute,
-  authorizeRole('MANAGER'),
   getAllWithdrawalRequests
 );
 // MANAGER - Xử lý yêu cầu rút tiền
 router.put(
   '/manager/withdrawal-request/:id',
   protectRoute,
-  authorizeRole('MANAGER'),
   processWithdrawalRequest
 );
+// CUSTOMER - Mua tài liệu
+router.post('/buy-document/:id', protectRoute, buyDocument);
 // MANAGER - Lấy thông tin ví platform
-router.get(
-  '/manager/platform-wallet',
-  protectRoute,
-  authorizeRole('MANAGER'),
-  getPlatformWallet
-);
+router.get('/manager/platform-wallet', protectRoute, getPlatformWallet);
 // MANAGER - Lấy thống kê payment
-router.get(
-  '/manager/stats',
-  protectRoute,
-  authorizeRole('MANAGER'),
-  getPaymentStats
-);
+router.get('/manager/stats', protectRoute, getPaymentStats);
 
 module.exports = router;

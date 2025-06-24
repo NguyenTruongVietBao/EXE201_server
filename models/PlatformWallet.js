@@ -27,6 +27,11 @@ const platformWalletSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    // Tổng số tiền đã chuyển cho seller
+    totalWithdrawals: {
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true }
 );

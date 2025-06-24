@@ -786,7 +786,7 @@ exports.downloadDocument = async (req, res) => {
 
     const result = await downloadDocumentAsZip(documentId, userId);
 
-    if (!result.success) {
+    if (!result.status) {
       return res.status(500).json({
         status: false,
         statusCode: 500,

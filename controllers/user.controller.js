@@ -321,16 +321,16 @@ exports.getSellerStatistics = async (req, res) => {
 
     // Tính toán khoảng thời gian
     let dateFilter = {};
-    const now = new Date();
+    const now = new Date(Date.now());
 
     if (period === 'week') {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       dateFilter = { createdAt: { $gte: weekAgo } };
     } else if (period === 'month') {
-      const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       dateFilter = { createdAt: { $gte: monthAgo } };
     } else if (period === 'year') {
-      const yearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+      const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
       dateFilter = { createdAt: { $gte: yearAgo } };
     }
 
@@ -488,7 +488,7 @@ exports.getSellerStatistics = async (req, res) => {
           documentId: { $in: documentIds },
           status: 'completed',
           createdAt: {
-            $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
+            $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
           },
         },
       },
@@ -570,16 +570,16 @@ exports.getManagerStatistics = async (req, res) => {
 
     // Tính toán khoảng thời gian
     let dateFilter = {};
-    const now = new Date();
+    const now = new Date(Date.now());
 
     if (period === 'week') {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       dateFilter = { createdAt: { $gte: weekAgo } };
     } else if (period === 'month') {
-      const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       dateFilter = { createdAt: { $gte: monthAgo } };
     } else if (period === 'year') {
-      const yearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+      const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
       dateFilter = { createdAt: { $gte: yearAgo } };
     }
 
@@ -698,18 +698,6 @@ exports.getManagerStatistics = async (req, res) => {
       periodSellerRevenue: 0,
       periodPlatformRevenue: 0,
     };
-
-    // 4. Platform Wallet
-    let platformWallet = await PlatformWallet.findOne();
-    if (!platformWallet) {
-      platformWallet = {
-        totalBalance: 0,
-        availableBalance: 0,
-        pendingBalance: 0,
-        totalCommissionEarned: 0,
-        totalRefunded: 0,
-      };
-    }
 
     // 5. Withdrawal Statistics
     const totalWithdrawals = await WithdrawalRequest.countDocuments();
@@ -832,7 +820,7 @@ exports.getManagerStatistics = async (req, res) => {
         $match: {
           status: 'COMPLETED',
           createdAt: {
-            $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
+            $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
           },
         },
       },
@@ -906,7 +894,6 @@ exports.getManagerStatistics = async (req, res) => {
           ...revenue,
           ...periodRevenue,
         },
-        platformWallet,
         withdrawals: {
           total: totalWithdrawals,
           pending: pendingWithdrawals,

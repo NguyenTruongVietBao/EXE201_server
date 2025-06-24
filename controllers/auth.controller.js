@@ -48,7 +48,7 @@ exports.registerCustomer = async (req, res) => {
 
     user.password = await hashPassword(password);
     user.verificationToken = generateVerifyEmailToken();
-    user.verificationTokenExpire = Date.now() + 3600000; // 1 hour
+    user.verificationTokenExpire = new Date(Date.now() + 3600000); // 1 hour
     const accessToken = generateToken(user._id, user.role, user.email);
 
     const verificationUrl = `${
@@ -159,7 +159,7 @@ exports.registerSeller = async (req, res) => {
 
     user.password = await hashPassword(password);
     user.verificationToken = generateVerifyEmailToken();
-    user.verificationTokenExpire = Date.now() + 3600000; // 1 hour
+    user.verificationTokenExpire = new Date(Date.now() + 3600000); // 1 hour
     const accessToken = generateToken(user._id, user.role, user.email);
 
     const verificationUrl = `${
@@ -226,7 +226,7 @@ exports.verifyEmail = async (req, res) => {
     const user = await User.findOne({
       email,
       verificationToken,
-      verificationTokenExpire: { $gt: Date.now() },
+      verificationTokenExpire: { $gt: new Date(Date.now()) },
     });
 
     if (!user) {
@@ -289,10 +289,10 @@ exports.login = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email }).populate(
-      'interests',
-      'name emoji'
-    );
+    const user = await User.findOne({ email })
+      .populate('interests', 'name emoji')
+      .populate('documents', 'title price discount')
+      .populate('groups', 'name');
     if (!user) {
       return res.status(400).json({
         status: false,

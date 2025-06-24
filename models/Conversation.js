@@ -1,26 +1,34 @@
 const mongoose = require('mongoose');
 
-const conversationSchema = new mongoose.Schema({
-  participants: [
-    {
+const conversationSchema = new mongoose.Schema(
+  {
+    participants: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+      },
+    ],
+    lastMessage: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
+      ref: 'Message',
+      default: null,
     },
-  ],
-  lastMessage: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Message',
-    default: null,
+    lastActivity: {
+      type: Date,
+      default: new Date(Date.now()),
+    },
   },
-  lastActivity: {
-    type: Date,
-    default: Date.now,
-  },
-});
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+  }
+);
 
-// Index để tìm conversation giữa 2 users
+// Index để tìm conversation
 conversationSchema.index({ participants: 1 });
+conversationSchema.index({ lastActivity: -1 });
 
 // Validation: chỉ có đúng 2 participants
 conversationSchema.pre('save', function (next) {
@@ -30,12 +38,5 @@ conversationSchema.pre('save', function (next) {
     next();
   }
 });
-
-// Static method để tìm conversation giữa 2 users
-conversationSchema.statics.findBetweenUsers = function (userId1, userId2) {
-  return this.findOne({
-    participants: { $all: [userId1, userId2] },
-  });
-};
 
 module.exports = mongoose.model('Conversation', conversationSchema);

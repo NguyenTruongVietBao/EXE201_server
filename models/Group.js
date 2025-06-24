@@ -30,7 +30,7 @@ const groupSchema = new mongoose.Schema(
         },
         joinDate: {
           type: Date,
-          default: Date.now,
+          default: new Date(Date.now()),
         },
         isAdmin: {
           type: Boolean,

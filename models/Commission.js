@@ -17,12 +17,12 @@ const commissionSchema = new mongoose.Schema(
     platformAmount: { type: Number, required: true },
     status: {
       type: String,
-      enum: ['PENDING', 'RELEASED', 'CANCELLED'],
+      enum: ['PENDING', 'RELEASED', 'CANCELLED', 'REFUNDED'],
       default: 'PENDING',
     },
     releaseDate: {
       type: Date,
-      default: Date.now() + 24 * 60 * 60 * 1000, // 1d later
+      default: new Date(Date.now() + 24 * 60 * 60 * 1000),
     },
   },
   { timestamps: true }

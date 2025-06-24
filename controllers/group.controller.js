@@ -27,7 +27,7 @@ exports.createGroup = async (req, res) => {
         {
           userId: createdBy,
           isAdmin: true, // Creator là admin
-          joinDate: new Date().toLocaleString(),
+          joinDate: new Date(Date.now()),
         },
       ],
     });
@@ -199,7 +199,7 @@ exports.acceptJoinRequest = async (req, res) => {
     group.members.push({
       userId: joinRequest.userId._id,
       isAdmin: false,
-      joinDate: new Date().toLocaleString(),
+      joinDate: new Date(Date.now()),
     });
     await group.save();
 
@@ -348,7 +348,9 @@ exports.getAllGroups = async (req, res) => {
 exports.getGroupDetails = async (req, res) => {
   try {
     const { groupId } = req.params;
+    const currentUserId = req.user._id;
 
+    // Lấy thông tin group cơ bản
     const group = await Group.findById(groupId)
       .populate('createdBy', 'name avatar email')
       .populate('members.userId', 'name avatar email')
@@ -363,11 +365,119 @@ exports.getGroupDetails = async (req, res) => {
       });
     }
 
+    // Kiểm tra xem user hiện tại có phải là thành viên không
+    const currentMember = group.members.find(
+      (member) => member.userId._id.toString() === currentUserId.toString()
+    );
+
+    const isCreator =
+      group.createdBy._id.toString() === currentUserId.toString();
+    const isMember = !!currentMember;
+    const isAdmin = currentMember?.isAdmin || isCreator;
+
+    // Lấy tin nhắn gần đây (chỉ cho thành viên)
+    let recentMessages = [];
+    if (isMember) {
+      const Message = require('../models/Message');
+      recentMessages = await Message.find({ groupId })
+        .populate('senderId', 'name avatar')
+        .sort({ createdAt: -1 })
+        .limit(10);
+    }
+
+    // Lấy yêu cầu tham gia pending (chỉ cho admin)
+    let pendingRequests = [];
+    if (isAdmin) {
+      const JoinGroupRequest = require('../models/JoinGroupRequest');
+      pendingRequests = await JoinGroupRequest.find({
+        groupId,
+        status: 'PENDING',
+      })
+        .populate('userId', 'name avatar email')
+        .sort({ createdAt: -1 });
+    }
+
+    // Thống kê group
+    const stats = {
+      totalMembers: group.members.length,
+      maxMembers: group.maxMembers,
+      availableSlots: group.maxMembers - group.members.length,
+      joinedThisMonth: group.members.filter((member) => {
+        const joinDate = new Date(member.joinDate);
+        const thisMonth = new Date();
+        thisMonth.setDate(1);
+        return joinDate >= thisMonth;
+      }).length,
+      totalInterests: group.interests.length,
+      pendingRequestsCount: pendingRequests.length,
+    };
+
+    // Gợi ý thành viên mới (dựa trên interests chung)
+    const User = require('../models/User');
+    let suggestedMembers = [];
+    if (isAdmin) {
+      const groupInterestIds = group.interests.map((interest) => interest._id);
+      const currentMemberIds = group.members.map((member) => member.userId._id);
+
+      suggestedMembers = await User.find({
+        _id: { $nin: [...currentMemberIds, currentUserId] },
+        interests: { $in: groupInterestIds },
+        isBanned: false,
+        isVerified: true,
+      })
+        .populate('interests', 'name emoji')
+        .limit(5)
+        .select('name avatar email interests');
+    }
+
+    // Tính tỷ lệ hoạt động (số tin nhắn trong 7 ngày qua)
+    let activityRate = 0;
+    if (isMember) {
+      const Message = require('../models/Message');
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+
+      const recentMessagesCount = await Message.countDocuments({
+        groupId,
+        createdAt: { $gte: weekAgo },
+      });
+
+      activityRate = Math.min(
+        100,
+        Math.round((recentMessagesCount / 10) * 100)
+      );
+    }
+
+    const responseData = {
+      groupInfo: {
+        _id: group._id,
+        name: group.name,
+        description: group.description,
+        createdBy: group.createdBy,
+        interests: group.interests,
+        createdAt: group.createdAt,
+        updatedAt: group.updatedAt,
+      },
+      members: group.members,
+      userPermissions: {
+        isMember,
+        isAdmin,
+        isCreator,
+        canInvite: isAdmin,
+        canManageMembers: isAdmin,
+        canViewMessages: isMember,
+        canSendMessages: isMember,
+      },
+      statistics: stats,
+      activityRate,
+      ...(isMember && { recentMessages: recentMessages.reverse() }), // Đảo ngược để hiển thị theo thứ tự thời gian
+    };
+
     res.status(200).json({
       status: true,
       statusCode: 200,
-      message: 'Lấy thông tin nhóm thành công',
-      data: group,
+      message: 'Lấy thông tin chi tiết nhóm thành công',
+      data: responseData,
     });
   } catch (error) {
     console.log('ERROR', error);
@@ -417,6 +527,7 @@ exports.getGroupJoinRequests = async (req, res) => {
       status,
     })
       .populate('userId', 'name avatar email')
+      .populate('groupId', 'name description members interests')
       .sort({ createdAt: -1 });
 
     res.status(200).json({
@@ -440,18 +551,13 @@ exports.getGroupJoinRequests = async (req, res) => {
 exports.getJoinedGroups = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
 
     // Tìm các nhóm mà user là member
     const groups = await Group.find({ 'members.userId': userId })
       .populate('createdBy', 'name avatar email')
       .populate('interests', 'name emoji')
-      .sort({ updatedAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    const totalCount = await Group.countDocuments({ 'members.userId': userId });
+      .populate('members.userId', 'name avatar email')
+      .sort({ updatedAt: -1 });
 
     // Thêm thông tin vai trò của user trong mỗi nhóm
     const groupsWithUserRole = groups.map((group) => {
@@ -461,7 +567,13 @@ exports.getJoinedGroups = async (req, res) => {
 
       return {
         ...group.toObject(),
-        userRole: userMember?.isAdmin ? 'admin' : 'member',
+        // Xác định userRole: ADMIN nếu là creator hoặc có isAdmin = true
+        userRole:
+          group.createdBy._id.toString() === userId.toString()
+            ? 'ADMIN'
+            : userMember?.isAdmin
+            ? 'ADMIN'
+            : 'MEMBER',
         joinDate: userMember?.joinDate,
       };
     });
@@ -472,12 +584,6 @@ exports.getJoinedGroups = async (req, res) => {
       message: 'Lấy danh sách nhóm đã tham gia thành công',
       data: {
         groups: groupsWithUserRole,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(totalCount / parseInt(limit)),
-          totalCount,
-          limit: parseInt(limit),
-        },
       },
     });
   } catch (error) {
@@ -486,6 +592,54 @@ exports.getJoinedGroups = async (req, res) => {
       status: false,
       statusCode: 500,
       message: 'Lỗi server khi lấy danh sách nhóm đã tham gia',
+      data: null,
+    });
+  }
+};
+
+// Lấy danh sách nhóm mà tôi tạo
+exports.getMyGroups = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // Tìm các nhóm mà user đã tạo
+    const groups = await Group.find({ createdBy: userId })
+      .populate('createdBy', 'name avatar email')
+      .populate('members.userId', 'name avatar email')
+      .populate('interests', 'name emoji')
+      .sort({ createdAt: -1 });
+
+    // Thêm thông tin thống kê cho mỗi nhóm
+    const groupsWithStats = groups.map((group) => {
+      return {
+        ...group.toObject(),
+        memberCount: group.members.length,
+        // Tính số admin trong nhóm
+        adminCount: group.members.filter((member) => member.isAdmin).length,
+        // Tính tỷ lệ đầy
+        fillPercentage: Math.round(
+          (group.members.length / group.maxMembers) * 100
+        ),
+        // User role luôn là ADMIN vì là creator
+        userRole: 'ADMIN',
+      };
+    });
+
+    res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Lấy danh sách nhóm đã tạo thành công',
+      data: {
+        groups: groupsWithStats,
+        totalGroups: groups.length,
+      },
+    });
+  } catch (error) {
+    console.error('Get my groups error:', error);
+    res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi server khi lấy danh sách nhóm đã tạo',
       data: null,
     });
   }
@@ -531,10 +685,29 @@ exports.getUserGroupStats = async (req, res) => {
         adminGroups,
         createdGroups,
         memberGroups: totalJoinedGroups - adminGroups,
-        recentGroups: recentGroups.map((group) => ({
-          ...group.toObject(),
-          memberCount: group.members.length,
-        })),
+        recentGroups: recentGroups.map((group) => {
+          // Xác định userRole cho user hiện tại trong nhóm này
+          let userRole = 'MEMBER';
+
+          // Nếu user là creator thì là ADMIN
+          if (group.createdBy._id.toString() === userId.toString()) {
+            userRole = 'ADMIN';
+          } else {
+            // Kiểm tra trong members xem user có isAdmin = true không
+            const userMember = group.members.find(
+              (member) => member.userId.toString() === userId.toString()
+            );
+            if (userMember?.isAdmin) {
+              userRole = 'ADMIN';
+            }
+          }
+
+          return {
+            ...group.toObject(),
+            memberCount: group.members.length,
+            userRole,
+          };
+        }),
       },
     });
   } catch (error) {
@@ -543,6 +716,84 @@ exports.getUserGroupStats = async (req, res) => {
       status: false,
       statusCode: 500,
       message: 'Lỗi server khi lấy thống kê nhóm',
+      data: null,
+    });
+  }
+};
+
+// Lấy tất cả các yêu cầu tham gia nhóm mà user đã gửi
+exports.getAllJoinRequests = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { status } = req.query; // PENDING, ACCEPTED, REJECTED
+
+    // Tạo query filter
+    const query = { userId };
+    if (status) {
+      query.status = status;
+    }
+
+    // Lấy tất cả join requests của user
+    const joinRequests = await JoinGroupRequest.find(query)
+      .populate('userId', 'name avatar email')
+      .populate({
+        path: 'groupId',
+        select: 'name description members interests maxMembers createdBy',
+        populate: [
+          {
+            path: 'createdBy',
+            select: 'name avatar email',
+          },
+          {
+            path: 'interests',
+            select: 'name emoji',
+          },
+        ],
+      })
+      .sort({ createdAt: -1 });
+
+    // Thêm thông tin thống kê cho mỗi request
+    const requestsWithStats = joinRequests.map((request) => {
+      const group = request.groupId;
+      return {
+        ...request.toObject(),
+        groupStats: {
+          memberCount: group?.members?.length || 0,
+          maxMembers: group?.maxMembers || 0,
+          fillPercentage: group
+            ? Math.round((group.members.length / group.maxMembers) * 100)
+            : 0,
+        },
+      };
+    });
+
+    // Thống kê tổng quan
+    const [pendingCount, acceptedCount, rejectedCount] = await Promise.all([
+      JoinGroupRequest.countDocuments({ userId, status: 'PENDING' }),
+      JoinGroupRequest.countDocuments({ userId, status: 'ACCEPTED' }),
+      JoinGroupRequest.countDocuments({ userId, status: 'REJECTED' }),
+    ]);
+
+    res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Lấy danh sách yêu cầu tham gia nhóm thành công',
+      data: {
+        joinRequests: requestsWithStats,
+        stats: {
+          pending: pendingCount,
+          accepted: acceptedCount,
+          rejected: rejectedCount,
+          total: pendingCount + acceptedCount + rejectedCount,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Get all join requests error:', error);
+    res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi server khi lấy danh sách yêu cầu tham gia nhóm',
       data: null,
     });
   }

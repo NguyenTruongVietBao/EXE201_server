@@ -4,40 +4,39 @@ const Group = require('../models/Group');
 const User = require('../models/User');
 
 const chatHandlers = (socket, io) => {
-  // Gửi tin nhắn trực tiếp giữa 2 users
+  // Gửi tin nhắn 1-1
   socket.on('send_direct_message', async (data) => {
     try {
       const { receiverId, messageType, content, fileUrl } = data;
       const senderId = socket.userId;
 
-      if (!receiverId) {
-        socket.emit('error', { message: 'receiverId is required' });
+      // Validate input
+      if (!receiverId || receiverId === senderId.toString()) {
+        socket.emit('error', { message: 'ID người nhận không hợp lệ' });
         return;
       }
+
+      if (
+        !messageType ||
+        (messageType === 'text' && !content) ||
+        (messageType === 'image' && !fileUrl)
+      ) {
+        socket.emit('error', { message: 'Dữ liệu tin nhắn không hợp lệ' });
+        return;
+      }
+
+      // Kiểm tra receiver có tồn tại
       const receiver = await User.findById(receiverId);
       if (!receiver) {
-        socket.emit('error', { message: 'Receiver not found' });
+        socket.emit('error', { message: 'Người nhận không tồn tại' });
         return;
       }
 
-      if (messageType === 'text' && !content) {
-        socket.emit('error', {
-          message: 'content is required for text message',
-        });
-        return;
-      }
-      if (messageType === 'image' && !fileUrl) {
-        socket.emit('error', {
-          message: 'fileUrl is required for image message',
-        });
-        return;
-      }
+      // Tìm hoặc tạo conversation
+      let conversation = await Conversation.findOne({
+        participants: { $all: [senderId, receiverId] },
+      });
 
-      // Tạo hoặc tìm conversation
-      let conversation = await Conversation.findBetweenUsers(
-        senderId,
-        receiverId
-      );
       if (!conversation) {
         conversation = await Conversation.create({
           participants: [senderId, receiverId],
@@ -47,7 +46,7 @@ const chatHandlers = (socket, io) => {
       // Tạo message
       const message = await Message.create({
         senderId,
-        receiverId,
+        conversationId: conversation._id,
         messageType,
         content: content || null,
         fileUrl: fileUrl || null,
@@ -55,65 +54,61 @@ const chatHandlers = (socket, io) => {
 
       // Cập nhật conversation
       conversation.lastMessage = message._id;
-      conversation.lastActivity = new Date().toLocaleString();
+      conversation.lastActivity = new Date(Date.now());
       await conversation.save();
 
-      // Populate message để gửi về client
-      const populatedMessage = await Message.findById(message._id)
-        .populate('senderId', 'name avatar email')
-        .populate('receiverId', 'name avatar email');
+      // Populate message
+      const populatedMessage = await Message.findById(message._id).populate(
+        'senderId',
+        'name avatar email'
+      );
 
       // Gửi tin nhắn cho cả 2 users
       io.to(`user_${senderId}`).emit('new_direct_message', populatedMessage);
       io.to(`user_${receiverId}`).emit('new_direct_message', populatedMessage);
 
-      // Xác nhận gửi thành công
       socket.emit('message_sent', { messageId: message._id });
     } catch (error) {
       console.error('Send direct message error:', error);
-      socket.emit('error', { message: 'Failed to send message' });
+      socket.emit('error', { message: 'Gửi tin nhắn thất bại' });
     }
   });
 
-  // Gửi tin nhắn trong group
+  // Gửi tin nhắn nhóm
   socket.on('send_group_message', async (data) => {
     try {
       const { groupId, messageType, content, fileUrl } = data;
       const senderId = socket.userId;
 
-      // Validate data
+      // Validate input
       if (!groupId) {
-        socket.emit('error', { message: 'groupId is required' });
+        socket.emit('error', { message: 'ID nhóm là bắt buộc' });
         return;
       }
 
-      if (messageType === 'text' && !content) {
-        socket.emit('error', {
-          message: 'content is required for text message',
-        });
+      if (
+        !messageType ||
+        (messageType === 'text' && !content) ||
+        (messageType === 'image' && !fileUrl)
+      ) {
+        socket.emit('error', { message: 'Dữ liệu tin nhắn không hợp lệ' });
         return;
       }
 
-      if (messageType === 'image' && !fileUrl) {
-        socket.emit('error', {
-          message: 'fileUrl is required for image message',
-        });
-        return;
-      }
-
-      // Kiểm tra group có tồn tại không
+      // Kiểm tra group và membership
       const group = await Group.findById(groupId);
       if (!group) {
-        socket.emit('error', { message: 'Group not found' });
+        socket.emit('error', { message: 'Nhóm không tồn tại' });
         return;
       }
 
-      // Kiểm tra user có phải member của group không
       const isMember = group.members.some(
-        (member) => member.userId.toString() === senderId
+        (member) => member.userId.toString() === senderId.toString()
       );
       if (!isMember) {
-        socket.emit('error', { message: 'You are not a member of this group' });
+        socket.emit('error', {
+          message: 'Bạn không phải thành viên của nhóm này',
+        });
         return;
       }
 
@@ -126,89 +121,58 @@ const chatHandlers = (socket, io) => {
         fileUrl: fileUrl || null,
       });
 
-      // Populate message để gửi về client
-      const populatedMessage = await Message.findById(message._id)
-        .populate('senderId', 'name avatar email')
-        .populate('groupId', 'name description');
+      // Populate message
+      const populatedMessage = await Message.findById(message._id).populate(
+        'senderId',
+        'name avatar email'
+      );
 
       // Gửi tin nhắn cho tất cả members trong group
       io.to(`group_${groupId}`).emit('new_group_message', populatedMessage);
 
-      // Xác nhận gửi thành công
       socket.emit('message_sent', { messageId: message._id });
     } catch (error) {
       console.error('Send group message error:', error);
-      socket.emit('error', { message: 'Failed to send group message' });
+      socket.emit('error', { message: 'Gửi tin nhắn nhóm thất bại' });
     }
   });
 
-  // Join group room (khi user join group mới)
+  // Join group room
   socket.on('join_group', async (data) => {
     try {
       const { groupId } = data;
       const userId = socket.userId;
 
-      // Kiểm tra user có phải member của group không
       const group = await Group.findById(groupId);
       if (!group) {
-        socket.emit('error', { message: 'Group not found' });
+        socket.emit('error', { message: 'Nhóm không tồn tại' });
         return;
       }
 
       const isMember = group.members.some(
-        (member) => member.userId.toString() === userId
+        (member) => member.userId.toString() === userId.toString()
       );
       if (!isMember) {
-        socket.emit('error', { message: 'You are not a member of this group' });
+        socket.emit('error', {
+          message: 'Bạn không phải thành viên của nhóm này',
+        });
         return;
       }
 
-      // Join room
       socket.join(`group_${groupId}`);
       socket.emit('joined_group', { groupId });
     } catch (error) {
       console.error('Join group error:', error);
-      socket.emit('error', { message: 'Failed to join group' });
+      socket.emit('error', { message: 'Tham gia nhóm thất bại' });
     }
   });
 
-  // Typing indicator cho direct chat
-  socket.on('typing_start', (data) => {
-    const { receiverId } = data;
-    if (receiverId) {
-      io.to(`user_${receiverId}`).emit('user_typing', {
-        userId: socket.userId,
-        userName: socket.user.name,
-      });
-    }
-  });
-  socket.on('typing_stop', (data) => {
-    const { receiverId } = data;
-    if (receiverId) {
-      io.to(`user_${receiverId}`).emit('user_stop_typing', {
-        userId: socket.userId,
-      });
-    }
-  });
-
-  // Typing indicator cho group chat
-  socket.on('group_typing_start', (data) => {
+  // Leave group room
+  socket.on('leave_group', (data) => {
     const { groupId } = data;
     if (groupId) {
-      socket.to(`group_${groupId}`).emit('user_typing_group', {
-        userId: socket.userId,
-        userName: socket.user.name,
-        groupId,
-      });
-    }
-  });
-  socket.on('group_typing_stop', (data) => {
-    const { groupId } = data;
-    if (groupId) {
-      socket.to(`group_${groupId}`).emit('user_stop_typing_group', {
-        userId: socket.userId,
-        groupId,
-      });
+      socket.leave(`group_${groupId}`);
+      socket.emit('left_group', { groupId });
     }
   });
 };

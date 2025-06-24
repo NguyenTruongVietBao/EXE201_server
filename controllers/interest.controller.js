@@ -126,9 +126,6 @@ exports.updateInterest = async (req, res) => {
 exports.getRecommendedDocsUsersGroups = async (req, res) => {
   try {
     const currentUserId = req.user._id;
-    const user = await User.findById(currentUserId);
-    const { minSharedInterests = user.interests.length, limit = 10 } =
-      req.query;
 
     // Lấy thông tin user hiện tại với interests
     const currentUser = await User.findById(currentUserId)
@@ -156,6 +153,9 @@ exports.getRecommendedDocsUsersGroups = async (req, res) => {
     const userInterestIds = currentUser.interests.map(
       (interest) => interest._id
     );
+
+    // Lấy minSharedInterests từ query, mặc định là 1 (thay vì user.interests.length)
+    const { minSharedInterests = 1, limit = 10 } = req.query;
 
     // Tìm tài liệu có chung ít nhất minSharedInterests sở thích
     const recommendedDocuments = await Document.aggregate([
@@ -224,8 +224,10 @@ exports.getRecommendedDocsUsersGroups = async (req, res) => {
           description: 1,
           price: 1,
           discount: 1,
-          imageUrl: 1,
+          isFree: 1,
+          imageUrls: 1,
           author: 1,
+          interestDetails: 1,
           sharedInterestsCount: 1,
           matchPercentage: 1,
           createdAt: 1,
@@ -289,6 +291,7 @@ exports.getRecommendedDocsUsersGroups = async (req, res) => {
           name: 1,
           email: 1,
           avatar: 1,
+          interestDetails: 1,
           sharedInterestsCount: 1,
           matchPercentage: 1,
           createdAt: 1,
@@ -430,6 +433,7 @@ exports.getRecommendedDocsUsersGroups = async (req, res) => {
           count: recommendedGroups.length,
           totalAvailable: totalGroups,
         },
+        userInterests: currentUser.interests,
         searchCriteria: {
           minSharedInterests: parseInt(minSharedInterests),
           limit: parseInt(limit),
@@ -722,7 +726,18 @@ exports.getPriorityGroups = async (req, res) => {
     // Không cần điều kiện tối thiểu, lấy tất cả và sắp xếp theo ưu tiên
 
     // Lấy tất cả groups và sắp xếp theo interests chung
+    // LOẠI TRỪ các nhóm mà user đã tham gia hoặc tạo
     const groups = await Group.aggregate([
+      {
+        $match: {
+          $and: [
+            // Loại trừ nhóm user đã tạo
+            { createdBy: { $ne: currentUserId } },
+            // Loại trừ nhóm user đã join
+            { 'members.userId': { $ne: currentUserId } },
+          ],
+        },
+      },
       {
         $addFields: {
           // Tính số interests chung
@@ -792,16 +807,24 @@ exports.getPriorityGroups = async (req, res) => {
           sharedInterestsCount: 1,
           compatibilityScore: 1,
           createdAt: 1,
-          // Thêm flag cho biết user đã join chưa
-          isMember: {
-            $in: [currentUserId, '$members.userId'],
-          },
+          // Không cần flag isMember vì đã lọc ra rồi
+          availableToJoin: true,
         },
       },
     ]);
 
-    // Đếm tổng số groups (cho phân trang)
+    // Đếm tổng số groups (cho phân trang) - cũng loại trừ nhóm đã join
     const totalCountResult = await Group.aggregate([
+      {
+        $match: {
+          $and: [
+            // Loại trừ nhóm user đã tạo
+            { createdBy: { $ne: currentUserId } },
+            // Loại trừ nhóm user đã join
+            { 'members.userId': { $ne: currentUserId } },
+          ],
+        },
+      },
       {
         $addFields: {
           sharedInterestsCount: {
@@ -821,7 +844,7 @@ exports.getPriorityGroups = async (req, res) => {
     res.status(200).json({
       status: true,
       statusCode: 200,
-      message: 'Lấy danh sách groups theo ưu tiên thành công',
+      message: 'Lấy danh sách groups có thể tham gia thành công',
       data: {
         groups,
         pagination: {

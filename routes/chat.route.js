@@ -1,17 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const multer = require('multer');
+const chatController = require('../controllers/chat.controller');
 const { protectRoute } = require('../middlewares/auth.middleware');
-const {
-  getConversations,
-  createConversation,
-  getConversationMessages,
-  getGroupMessages,
-  uploadChatImage,
-  sendMessage,
-  sendGroupMessage,
-} = require('../controllers/chat.controller');
-
+const multer = require('multer');
 // Cấu hình multer cho upload ảnh
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -41,23 +32,38 @@ router.post(
   '/upload-image',
   protectRoute,
   upload.single('image'),
-  uploadChatImage
+  chatController.uploadChatImage
 );
-// USER - USER
-router.get('/conversations', protectRoute, getConversations);
-router.post('/conversations', protectRoute, createConversation);
+
+// Chat 1-1
+router.get('/conversations', protectRoute, chatController.getConversations);
+router.post(
+  '/conversations/:participantId',
+  protectRoute,
+  chatController.createConversation
+);
 router.get(
   '/conversations/:conversationId/messages',
   protectRoute,
-  getConversationMessages
+  chatController.getConversationMessages
 );
 router.post(
   '/conversations/:conversationId/messages',
   protectRoute,
-  sendMessage
+  chatController.sendMessage
 );
-// USER - GROUP
-router.get('/groups/:groupId/messages', protectRoute, getGroupMessages);
-router.post('/groups/:groupId/messages', protectRoute, sendGroupMessage);
+
+// Chat nhóm
+router.get('/groups', protectRoute, chatController.getJoinedGroups);
+router.get(
+  '/groups/:groupId/messages',
+  protectRoute,
+  chatController.getGroupMessages
+);
+router.post(
+  '/groups/:groupId/messages',
+  protectRoute,
+  chatController.sendGroupMessage
+);
 
 module.exports = router;
