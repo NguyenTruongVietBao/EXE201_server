@@ -305,24 +305,98 @@ exports.createWithdrawalRequest = async (req, res) => {
   }
 };
 
-// Lấy danh sách yêu cầu rút tiền của seller
+// Lấy danh sách yêu cầu rút tiền của seller với thống kê
 exports.getMyWithdrawalRequests = async (req, res) => {
   try {
     const sellerId = req.user._id;
-    const { page = 1, limit = 10, status } = req.query;
+    const { status } = req.query;
 
+    // Query cơ bản
     const query = { sellerId };
     if (status) {
       query.status = status;
     }
 
+    // Lấy tất cả withdrawal requests (bỏ pagination)
     const withdrawalRequests = await WithdrawalRequest.find(query)
       .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
       .populate('processedBy', 'name email avatar');
 
-    const total = await WithdrawalRequest.countDocuments(query);
+    // Thống kê tổng quan
+    const statistics = await WithdrawalRequest.aggregate([
+      { $match: { sellerId } },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+          totalAmount: { $sum: '$amount' },
+        },
+      },
+    ]);
+
+    // Tính toán thống kê chi tiết
+    const stats = {
+      total: await WithdrawalRequest.countDocuments({ sellerId }),
+      pending: 0,
+      rejected: 0,
+      completed: 0,
+      totalAmount: 0,
+      pendingAmount: 0,
+      rejectedAmount: 0,
+      completedAmount: 0,
+    };
+
+    // Xử lý dữ liệu thống kê
+    statistics.forEach((stat) => {
+      const status = stat._id?.toLowerCase() || 'unknown';
+      const count = stat.count || 0;
+      const amount = stat.totalAmount || 0;
+
+      if (status === 'pending') {
+        stats.pending = count;
+        stats.pendingAmount = amount;
+      } else if (status === 'rejected') {
+        stats.rejected = count;
+        stats.rejectedAmount = amount;
+      } else if (status === 'completed') {
+        stats.completed = count;
+        stats.completedAmount = amount;
+      }
+
+      stats.totalAmount += amount;
+    });
+
+    // Thống kê theo thời gian (30 ngày gần nhất)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const recentStats = await WithdrawalRequest.aggregate([
+      {
+        $match: {
+          sellerId,
+          createdAt: { $gte: thirtyDaysAgo },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' },
+            day: { $dayOfMonth: '$createdAt' },
+          },
+          count: { $sum: 1 },
+          amount: { $sum: '$amount' },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+    ]);
+
+    // Request gần nhất
+    const latestRequest = await WithdrawalRequest.findOne({ sellerId })
+      .sort({ createdAt: -1 })
+      .populate('processedBy', 'name email avatar');
+
+    // Tỷ lệ thành công
+    const successRate =
+      stats.total > 0 ? ((stats.completed / stats.total) * 100).toFixed(2) : 0;
 
     return res.status(200).json({
       status: true,
@@ -330,9 +404,19 @@ exports.getMyWithdrawalRequests = async (req, res) => {
       message: 'Lấy danh sách yêu cầu rút tiền thành công',
       data: {
         withdrawalRequests,
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
-        total,
+        statistics: {
+          overview: stats,
+          successRate: parseFloat(successRate),
+          latestRequest: latestRequest
+            ? {
+                id: latestRequest._id,
+                amount: latestRequest.amount,
+                status: latestRequest.status,
+                createdAt: latestRequest.createdAt,
+                processedBy: latestRequest.processedBy,
+              }
+            : null,
+        },
       },
     });
   } catch (error) {
@@ -430,26 +514,206 @@ exports.releaseCommissions = async () => {
         );
       }
     }
-
-    console.log(`Released ${commissionsToRelease.length} commissions`);
   } catch (error) {
     console.error('ERROR releaseCommissions:', error);
   }
 };
 
-// Lấy danh sách yêu cầu rút tiền
+// Lấy danh sách yêu cầu rút tiền với thống kê (dành cho admin)
 exports.getAllWithdrawalRequests = async (req, res) => {
   try {
-    const withdrawalRequests = await WithdrawalRequest.find().populate(
-      'sellerId',
-      'name email avatar'
-    );
+    const { status } = req.query;
+
+    // Query cơ bản
+    const query = {};
+    if (status) {
+      query.status = status;
+    }
+
+    // Lấy tất cả withdrawal requests
+    const withdrawalRequests = await WithdrawalRequest.find(query)
+      .sort({ createdAt: -1 })
+      .populate('sellerId', 'name email avatar')
+      .populate('processedBy', 'name email avatar');
+
+    // Thống kê tổng quan toàn hệ thống
+    const statistics = await WithdrawalRequest.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+          totalAmount: { $sum: '$amount' },
+        },
+      },
+    ]);
+
+    // Tính toán thống kê chi tiết
+    const stats = {
+      total: await WithdrawalRequest.countDocuments(),
+      pending: 0,
+      rejected: 0,
+      completed: 0,
+      totalAmount: 0,
+      pendingAmount: 0,
+      rejectedAmount: 0,
+      completedAmount: 0,
+    };
+
+    // Xử lý dữ liệu thống kê
+    statistics.forEach((stat) => {
+      const status = stat._id?.toLowerCase() || 'unknown';
+      const count = stat.count || 0;
+      const amount = stat.totalAmount || 0;
+
+      if (status === 'pending') {
+        stats.pending = count;
+        stats.pendingAmount = amount;
+      } else if (status === 'rejected') {
+        stats.rejected = count;
+        stats.rejectedAmount = amount;
+      } else if (status === 'completed') {
+        stats.completed = count;
+        stats.completedAmount = amount;
+      }
+
+      stats.totalAmount += amount;
+    });
+
+    // Top sellers theo số lượng withdrawal requests
+    const topSellers = await WithdrawalRequest.aggregate([
+      {
+        $group: {
+          _id: '$sellerId',
+          totalRequests: { $sum: 1 },
+          totalAmount: { $sum: '$amount' },
+          completedRequests: {
+            $sum: { $cond: [{ $eq: ['$status', 'COMPLETED'] }, 1, 0] },
+          },
+          completedAmount: {
+            $sum: { $cond: [{ $eq: ['$status', 'COMPLETED'] }, '$amount', 0] },
+          },
+        },
+      },
+      { $sort: { totalAmount: -1 } },
+      { $limit: 10 },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'seller',
+        },
+      },
+      {
+        $project: {
+          sellerId: '$_id',
+          sellerName: { $arrayElemAt: ['$seller.name', 0] },
+          sellerEmail: { $arrayElemAt: ['$seller.email', 0] },
+          sellerAvatar: { $arrayElemAt: ['$seller.avatar', 0] },
+          totalRequests: 1,
+          totalAmount: 1,
+          completedRequests: 1,
+          completedAmount: 1,
+        },
+      },
+    ]);
+
+    // Thống kê theo thời gian (30 ngày gần nhất)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const dailyStats = await WithdrawalRequest.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: thirtyDaysAgo },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' },
+            day: { $dayOfMonth: '$createdAt' },
+          },
+          count: { $sum: 1 },
+          amount: { $sum: '$amount' },
+          pending: {
+            $sum: { $cond: [{ $eq: ['$status', 'PENDING'] }, 1, 0] },
+          },
+          completed: {
+            $sum: { $cond: [{ $eq: ['$status', 'COMPLETED'] }, 1, 0] },
+          },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+    ]);
+
+    // Request cần xử lý gấp (pending lâu nhất)
+    const urgentRequests = await WithdrawalRequest.find({ status: 'PENDING' })
+      .sort({ createdAt: 1 })
+      .limit(5)
+      .populate('sellerId', 'name email avatar');
+
+    // Tỷ lệ thành công và processing time
+    const successRate =
+      stats.total > 0 ? ((stats.completed / stats.total) * 100).toFixed(2) : 0;
+
+    // Tính average processing time cho các requests đã completed
+    const avgProcessingTime = await WithdrawalRequest.aggregate([
+      {
+        $match: {
+          status: 'COMPLETED',
+          updatedAt: { $exists: true },
+        },
+      },
+      {
+        $project: {
+          processingTime: {
+            $divide: [
+              { $subtract: ['$updatedAt', '$createdAt'] },
+              1000 * 60 * 60, // Convert to hours
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          avgTime: { $avg: '$processingTime' },
+        },
+      },
+    ]);
 
     return res.status(200).json({
       status: true,
       statusCode: 200,
       message: 'Lấy danh sách yêu cầu rút tiền thành công',
-      data: withdrawalRequests,
+      data: {
+        withdrawalRequests,
+        statistics: {
+          overview: stats,
+          successRate: parseFloat(successRate),
+          avgProcessingTime: avgProcessingTime[0]?.avgTime?.toFixed(2) || 0,
+          topSellers,
+          dailyStats: dailyStats.map((item) => ({
+            date: `${item._id.year}-${String(item._id.month).padStart(
+              2,
+              '0'
+            )}-${String(item._id.day).padStart(2, '0')}`,
+            count: item.count,
+            amount: item.amount,
+            pending: item.pending,
+            completed: item.completed,
+          })),
+          urgentRequests: urgentRequests.map((req) => ({
+            id: req._id,
+            seller: req.sellerId,
+            amount: req.amount,
+            createdAt: req.createdAt,
+            daysPending: Math.floor(
+              (Date.now() - req.createdAt) / (1000 * 60 * 60 * 24)
+            ),
+          })),
+        },
+      },
     });
   } catch (error) {
     console.error('ERROR getAllWithdrawalRequests:', error);
@@ -543,7 +807,6 @@ exports.processWithdrawalRequest = async (req, res) => {
   }
 };
 
-// Lấy thông tin platform wallet
 exports.getPlatformWallet = async (req, res) => {
   try {
     const Refund = require('../models/Refund');
@@ -563,7 +826,57 @@ exports.getPlatformWallet = async (req, res) => {
       await platformWallet.save();
     }
 
-    // Tính toán lại totalRefunded từ dữ liệu thực tế
+    // Tính toán thời gian 24h trước
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    // 1. totalBalance: Tổng số tiền các customer đã chuyển (tất cả payments completed)
+    const totalBalanceAmount = await Payment.aggregate([
+      {
+        $match: {
+          status: 'COMPLETED',
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalAmount: { $sum: '$amount' },
+        },
+      },
+    ]);
+
+    // 2. pendingBalance: Tổng số tiền customer mua trong 24h gần nhất
+    const pendingBalanceAmount = await Payment.aggregate([
+      {
+        $match: {
+          status: 'COMPLETED',
+          createdAt: { $gte: twentyFourHoursAgo },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalAmount: { $sum: '$amount' },
+        },
+      },
+    ]);
+
+    // 3. totalCommissionEarned: Tổng hoa hồng 15% sau 24h customer mua
+    const totalCommissionAmount = await Payment.aggregate([
+      {
+        $match: {
+          status: 'COMPLETED',
+          createdAt: { $lt: twentyFourHoursAgo },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalAmount: { $sum: '$platformAmount' },
+        },
+      },
+    ]);
+
+    // 4. totalRefunded: Tổng số tiền đã hoàn trả
     const totalRefundedAmount = await Refund.aggregate([
       {
         $match: {
@@ -579,7 +892,7 @@ exports.getPlatformWallet = async (req, res) => {
       },
     ]);
 
-    // Tính toán totalWithdrawals từ các withdrawal đã completed
+    // 5. totalWithdrawals: Tổng số tiền đã rút
     const totalWithdrawalsAmount = await WithdrawalRequest.aggregate([
       {
         $match: {
@@ -594,26 +907,46 @@ exports.getPlatformWallet = async (req, res) => {
       },
     ]);
 
-    // Tính toán totalCommissionEarned từ dữ liệu thực tế
-    const totalCommissionAmount = await Commission.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalAmount: { $sum: '$amount' },
-        },
-      },
-    ]);
-
-    // Cập nhật các giá trị tính toán được
+    // Tính toán các giá trị
+    const calculatedTotalBalance = totalBalanceAmount[0]?.totalAmount || 0;
+    const calculatedPendingBalance = pendingBalanceAmount[0]?.totalAmount || 0;
+    const calculatedTotalCommission =
+      totalCommissionAmount[0]?.totalAmount || 0;
     const calculatedTotalRefunded = totalRefundedAmount[0]?.totalAmount || 0;
     const calculatedTotalWithdrawals =
       totalWithdrawalsAmount[0]?.totalAmount || 0;
-    const calculatedTotalCommission =
-      totalCommissionAmount[0]?.totalAmount || 0;
+
+    // availableBalance: Số tiền platform thực sự có thể sử dụng sau khi hoàn tất mọi thứ
+    // = totalCommissionEarned (hoa hồng sau 24h) - totalRefunded (đã hoàn trả)
+    // Đảm bảo không bao giờ âm
+    const calculatedAvailableBalance = Math.max(
+      0,
+      calculatedTotalCommission - calculatedTotalRefunded
+    );
 
     // Cập nhật vào database nếu có sự khác biệt
     let shouldUpdate = false;
     const updates = {};
+
+    if (platformWallet.totalBalance !== calculatedTotalBalance) {
+      updates.totalBalance = calculatedTotalBalance;
+      shouldUpdate = true;
+    }
+
+    if (platformWallet.availableBalance !== calculatedAvailableBalance) {
+      updates.availableBalance = calculatedAvailableBalance;
+      shouldUpdate = true;
+    }
+
+    if (platformWallet.pendingBalance !== calculatedPendingBalance) {
+      updates.pendingBalance = calculatedPendingBalance;
+      shouldUpdate = true;
+    }
+
+    if (platformWallet.totalCommissionEarned !== calculatedTotalCommission) {
+      updates.totalCommissionEarned = calculatedTotalCommission;
+      shouldUpdate = true;
+    }
 
     if (platformWallet.totalRefunded !== calculatedTotalRefunded) {
       updates.totalRefunded = calculatedTotalRefunded;
@@ -622,11 +955,6 @@ exports.getPlatformWallet = async (req, res) => {
 
     if (platformWallet.totalWithdrawals !== calculatedTotalWithdrawals) {
       updates.totalWithdrawals = calculatedTotalWithdrawals;
-      shouldUpdate = true;
-    }
-
-    if (platformWallet.totalCommissionEarned !== calculatedTotalCommission) {
-      updates.totalCommissionEarned = calculatedTotalCommission;
       shouldUpdate = true;
     }
 
@@ -640,6 +968,13 @@ exports.getPlatformWallet = async (req, res) => {
 
     // Thêm thống kê chi tiết
     const statistics = {
+      // Số lượng giao dịch
+      totalPaymentCount: await Payment.countDocuments({ status: 'COMPLETED' }),
+      pendingPaymentCount: await Payment.countDocuments({
+        status: 'COMPLETED',
+        createdAt: { $gte: twentyFourHoursAgo },
+      }),
+
       // Số lượng hoàn tiền
       totalRefundCount: await Refund.countDocuments({ status: 'APPROVED' }),
       pendingRefundCount: await Refund.countDocuments({ status: 'PENDING' }),
@@ -652,18 +987,37 @@ exports.getPlatformWallet = async (req, res) => {
         status: 'PENDING',
       }),
 
-      // Tỷ lệ
+      // Tỷ lệ và thống kê khác
       refundRate:
-        calculatedTotalCommission > 0
+        calculatedTotalBalance > 0
+          ? ((calculatedTotalRefunded / calculatedTotalBalance) * 100).toFixed(
+              2
+            )
+          : 0,
+      withdrawalRate:
+        calculatedTotalBalance > 0
           ? (
-              (calculatedTotalRefunded / calculatedTotalCommission) *
+              (calculatedTotalWithdrawals / calculatedTotalBalance) *
               100
             ).toFixed(2)
           : 0,
-      withdrawalRate:
-        calculatedTotalCommission > 0
+      commissionRate:
+        calculatedTotalBalance > 0
           ? (
-              (calculatedTotalWithdrawals / calculatedTotalCommission) *
+              (calculatedTotalCommission / calculatedTotalBalance) *
+              100
+            ).toFixed(2)
+          : 0,
+      pendingRate:
+        calculatedTotalBalance > 0
+          ? ((calculatedPendingBalance / calculatedTotalBalance) * 100).toFixed(
+              2
+            )
+          : 0,
+      availableRate:
+        calculatedTotalBalance > 0
+          ? (
+              (calculatedAvailableBalance / calculatedTotalBalance) *
               100
             ).toFixed(2)
           : 0,

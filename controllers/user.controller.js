@@ -556,38 +556,18 @@ exports.getSellerStatistics = async (req, res) => {
 
 exports.getManagerStatistics = async (req, res) => {
   try {
-    const { period } = req.query; // 'week', 'month', 'year' hoặc không có (all time)
-
     // Import models
     const Document = require('../models/Document');
     const Enrollment = require('../models/Enrollment');
     const Payment = require('../models/Payment');
     const Commission = require('../models/Commission');
-    const SellerWallet = require('../models/SellerWallet');
-    const PlatformWallet = require('../models/PlatformWallet');
     const WithdrawalRequest = require('../models/WithdrawalRequest');
-    const Interest = require('../models/Interest');
-
-    // Tính toán khoảng thời gian
-    let dateFilter = {};
-    const now = new Date(Date.now());
-
-    if (period === 'week') {
-      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      dateFilter = { createdAt: { $gte: weekAgo } };
-    } else if (period === 'month') {
-      const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      dateFilter = { createdAt: { $gte: monthAgo } };
-    } else if (period === 'year') {
-      const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
-      dateFilter = { createdAt: { $gte: yearAgo } };
-    }
 
     // 1. User Statistics
     const totalUsers = await User.countDocuments();
     const activeUsers = await User.countDocuments({ isBanned: false });
     const bannedUsers = await User.countDocuments({ isBanned: true });
-    const newUsers = await User.countDocuments(dateFilter);
+    const newUsers = await User.countDocuments();
 
     // Thống kê user theo role
     const usersByRole = await User.aggregate([
@@ -610,7 +590,7 @@ exports.getManagerStatistics = async (req, res) => {
     const rejectedDocuments = await Document.countDocuments({
       status: 'rejected',
     });
-    const newDocuments = await Document.countDocuments(dateFilter);
+    const newDocuments = await Document.countDocuments();
     const freeDocuments = await Document.countDocuments({ isFree: true });
     const paidDocuments = await Document.countDocuments({ isFree: false });
 
@@ -644,7 +624,7 @@ exports.getManagerStatistics = async (req, res) => {
     ]);
 
     // 3. Payment & Revenue Statistics
-    const paymentQuery = { status: 'COMPLETED', ...dateFilter };
+    const paymentQuery = { status: 'COMPLETED' };
     const totalPayments = await Payment.countDocuments();
     const completedPayments = await Payment.countDocuments({
       status: 'COMPLETED',
@@ -724,7 +704,7 @@ exports.getManagerStatistics = async (req, res) => {
 
     // 6. Enrollment Statistics
     const totalEnrollments = await Enrollment.countDocuments();
-    const periodEnrollments = await Enrollment.countDocuments(dateFilter);
+    const periodEnrollments = await Enrollment.countDocuments();
     const freeEnrollments = await Enrollment.aggregate([
       {
         $lookup: {
@@ -814,32 +794,6 @@ exports.getManagerStatistics = async (req, res) => {
       },
     ]);
 
-    // 9. Daily Revenue Stats (30 ngày gần nhất)
-    const dailyRevenueStats = await Payment.aggregate([
-      {
-        $match: {
-          status: 'COMPLETED',
-          createdAt: {
-            $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-          },
-        },
-      },
-      {
-        $group: {
-          _id: {
-            year: { $year: '$createdAt' },
-            month: { $month: '$createdAt' },
-            day: { $dayOfMonth: '$createdAt' },
-          },
-          revenue: { $sum: '$amount' },
-          platformRevenue: { $sum: '$platformAmount' },
-          sellerRevenue: { $sum: '$sellerAmount' },
-          sales: { $sum: 1 },
-        },
-      },
-      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
-    ]);
-
     // 10. Recent Activities
     const recentDocuments = await Document.find()
       .sort({ createdAt: -1 })
@@ -906,25 +860,353 @@ exports.getManagerStatistics = async (req, res) => {
         topCategories,
         topSellingDocuments,
         topSellers,
-        dailyRevenueStats: dailyRevenueStats.map((stat) => ({
-          date: `${stat._id.year}-${String(stat._id.month).padStart(
-            2,
-            '0'
-          )}-${String(stat._id.day).padStart(2, '0')}`,
-          revenue: stat.revenue,
-          platformRevenue: stat.platformRevenue,
-          sellerRevenue: stat.sellerRevenue,
-          sales: stat.sales,
-        })),
         recentActivities: {
           documents: recentDocuments,
           payments: recentPayments,
+        },
+      },
+    });
+  } catch (error) {
+    console.log('ERROR get manager statistics:', error);
+    res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi server',
+      data: null,
+    });
+  }
+};
+
+exports.getAdminUserStatistics = async (req, res) => {
+  try {
+    const { period } = req.query; // 'week', 'month', 'year' hoặc không có (all time)
+
+    // Import models
+    const Document = require('../models/Document');
+    const Enrollment = require('../models/Enrollment');
+    const Payment = require('../models/Payment');
+    const Group = require('../models/Group');
+    const JoinGroupRequest = require('../models/JoinGroupRequest');
+
+    // Tính toán khoảng thời gian
+    let dateFilter = {};
+    const now = new Date(Date.now());
+
+    if (period === 'week') {
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      dateFilter = { createdAt: { $gte: weekAgo } };
+    } else if (period === 'month') {
+      const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      dateFilter = { createdAt: { $gte: monthAgo } };
+    } else if (period === 'year') {
+      const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+      dateFilter = { createdAt: { $gte: yearAgo } };
+    }
+
+    // 1. Thống kê tổng quan về users
+    const totalUsers = await User.countDocuments();
+    const activeUsers = await User.countDocuments({ isBanned: false });
+    const bannedUsers = await User.countDocuments({ isBanned: true });
+    const verifiedUsers = await User.countDocuments({ isVerified: true });
+    const newUsers = await User.countDocuments(dateFilter);
+
+    // 2. Thống kê users theo role
+    const usersByRole = await User.aggregate([
+      {
+        $group: {
+          _id: '$role',
+          count: { $sum: 1 },
+          active: {
+            $sum: { $cond: [{ $eq: ['$isBanned', false] }, 1, 0] },
+          },
+          banned: {
+            $sum: { $cond: [{ $eq: ['$isBanned', true] }, 1, 0] },
+          },
+        },
+      },
+      { $sort: { count: -1 } },
+    ]);
+
+    // 3. Thống kê users theo interests (sở thích phổ biến)
+    const topInterests = await User.aggregate([
+      { $unwind: '$interests' },
+      {
+        $group: {
+          _id: '$interests',
+          userCount: { $sum: 1 },
+        },
+      },
+      { $sort: { userCount: -1 } },
+      { $limit: 10 },
+      {
+        $lookup: {
+          from: 'interests',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'interestData',
+        },
+      },
+      {
+        $project: {
+          interestId: '$_id',
+          name: { $arrayElemAt: ['$interestData.name', 0] },
+          emoji: { $arrayElemAt: ['$interestData.emoji', 0] },
+          userCount: 1,
+        },
+      },
+    ]);
+
+    // 4. User registration trends (30 ngày gần nhất)
+    const userRegistrationTrends = await User.aggregate([
+      {
+        $match: {
+          createdAt: {
+            $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+          },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' },
+            day: { $dayOfMonth: '$createdAt' },
+          },
+          count: { $sum: 1 },
+          roles: { $push: '$role' },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+    ]);
+
+    // 5. Top active users (based on documents created)
+    const topDocumentCreators = await Document.aggregate([
+      {
+        $group: {
+          _id: '$author',
+          documentCount: { $sum: 1 },
+          approvedDocuments: {
+            $sum: { $cond: [{ $eq: ['$status', 'approved'] }, 1, 0] },
+          },
+          totalDownloads: { $sum: '$downloadCount' },
+          totalViews: { $sum: '$viewCount' },
+        },
+      },
+      { $sort: { documentCount: -1 } },
+      { $limit: 10 },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'user',
+        },
+      },
+      {
+        $project: {
+          userId: '$_id',
+          name: { $arrayElemAt: ['$user.name', 0] },
+          email: { $arrayElemAt: ['$user.email', 0] },
+          avatar: { $arrayElemAt: ['$user.avatar', 0] },
+          role: { $arrayElemAt: ['$user.role', 0] },
+          documentCount: 1,
+          approvedDocuments: 1,
+          totalDownloads: 1,
+          totalViews: 1,
+        },
+      },
+    ]);
+
+    // 6. Top purchasers (users who bought most documents)
+    const topPurchasers = await Payment.aggregate([
+      { $match: { status: 'COMPLETED' } },
+      {
+        $group: {
+          _id: '$userId',
+          totalPurchases: { $sum: 1 },
+          totalSpent: { $sum: '$amount' },
+        },
+      },
+      { $sort: { totalPurchases: -1 } },
+      { $limit: 10 },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'user',
+        },
+      },
+      {
+        $project: {
+          userId: '$_id',
+          name: { $arrayElemAt: ['$user.name', 0] },
+          email: { $arrayElemAt: ['$user.email', 0] },
+          avatar: { $arrayElemAt: ['$user.avatar', 0] },
+          role: { $arrayElemAt: ['$user.role', 0] },
+          totalPurchases: 1,
+          totalSpent: 1,
+        },
+      },
+    ]);
+
+    // 7. Group activity statistics
+    const groupStats = await Group.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalGroups: { $sum: 1 },
+          activeGroups: {
+            $sum: { $cond: [{ $eq: ['$isActive', true] }, 1, 0] },
+          },
+          totalMembers: { $sum: { $size: '$members' } },
+          avgMembersPerGroup: { $avg: { $size: '$members' } },
+        },
+      },
+    ]);
+
+    // 8. User engagement metrics
+    const userEngagementMetrics = await User.aggregate([
+      {
+        $lookup: {
+          from: 'documents',
+          localField: '_id',
+          foreignField: 'author',
+          as: 'createdDocuments',
+        },
+      },
+      {
+        $lookup: {
+          from: 'enrollments',
+          localField: '_id',
+          foreignField: 'userId',
+          as: 'enrollments',
+        },
+      },
+      {
+        $lookup: {
+          from: 'groups',
+          localField: '_id',
+          foreignField: 'members',
+          as: 'joinedGroups',
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          avgDocumentsPerUser: { $avg: { $size: '$createdDocuments' } },
+          avgEnrollmentsPerUser: { $avg: { $size: '$enrollments' } },
+          avgGroupsPerUser: { $avg: { $size: '$joinedGroups' } },
+          usersWithDocuments: {
+            $sum: {
+              $cond: [{ $gt: [{ $size: '$createdDocuments' }, 0] }, 1, 0],
+            },
+          },
+          usersWithEnrollments: {
+            $sum: { $cond: [{ $gt: [{ $size: '$enrollments' }, 0] }, 1, 0] },
+          },
+          usersInGroups: {
+            $sum: { $cond: [{ $gt: [{ $size: '$joinedGroups' }, 0] }, 1, 0] },
+          },
+        },
+      },
+    ]);
+
+    // 9. Recent user activities
+    const recentUsers = await User.find()
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .select('name email avatar role isBanned isVerified createdAt');
+
+    const recentBannedUsers = await User.find({ isBanned: true })
+      .sort({ updatedAt: -1 })
+      .limit(5)
+      .select('name email avatar role createdAt updatedAt');
+
+    // 10. User growth comparison (so với period trước)
+    let previousPeriodFilter = {};
+    if (period === 'week') {
+      const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      previousPeriodFilter = {
+        createdAt: { $gte: twoWeeksAgo, $lt: weekAgo },
+      };
+    } else if (period === 'month') {
+      const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+      const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      previousPeriodFilter = {
+        createdAt: { $gte: twoMonthsAgo, $lt: monthAgo },
+      };
+    } else if (period === 'year') {
+      const twoYearsAgo = new Date(Date.now() - 730 * 24 * 60 * 60 * 1000);
+      const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+      previousPeriodFilter = {
+        createdAt: { $gte: twoYearsAgo, $lt: yearAgo },
+      };
+    }
+
+    const previousPeriodUsers =
+      Object.keys(previousPeriodFilter).length > 0
+        ? await User.countDocuments(previousPeriodFilter)
+        : 0;
+
+    const growthRate =
+      previousPeriodUsers > 0
+        ? (
+            ((newUsers - previousPeriodUsers) / previousPeriodUsers) *
+            100
+          ).toFixed(2)
+        : 0;
+
+    res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Lấy thống kê user cho admin thành công',
+      data: {
+        overview: {
+          totalUsers,
+          activeUsers,
+          bannedUsers,
+          verifiedUsers,
+          newUsers,
+          previousPeriodUsers,
+          growthRate: parseFloat(growthRate),
+        },
+        usersByRole,
+        topInterests,
+        userRegistrationTrends: userRegistrationTrends.map((trend) => ({
+          date: `${trend._id.year}-${String(trend._id.month).padStart(
+            2,
+            '0'
+          )}-${String(trend._id.day).padStart(2, '0')}`,
+          count: trend.count,
+          roles: trend.roles,
+        })),
+        topDocumentCreators,
+        topPurchasers,
+        groupStats: groupStats[0] || {
+          totalGroups: 0,
+          activeGroups: 0,
+          totalMembers: 0,
+          avgMembersPerGroup: 0,
+        },
+        engagement: userEngagementMetrics[0] || {
+          avgDocumentsPerUser: 0,
+          avgEnrollmentsPerUser: 0,
+          avgGroupsPerUser: 0,
+          usersWithDocuments: 0,
+          usersWithEnrollments: 0,
+          usersInGroups: 0,
+        },
+        recentActivities: {
+          recentUsers,
+          recentBannedUsers,
         },
         period: period || 'all',
       },
     });
   } catch (error) {
-    console.log('ERROR get manager statistics:', error);
+    console.log('ERROR get admin user statistics:', error);
     res.status(500).json({
       status: false,
       statusCode: 500,

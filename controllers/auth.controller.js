@@ -284,7 +284,7 @@ exports.login = async (req, res) => {
       return res.status(400).json({
         status: false,
         statusCode: 400,
-        message: 'Email and password are required',
+        message: 'Email và mật khẩu là bắt buộc',
         data: null,
       });
     }
@@ -297,7 +297,7 @@ exports.login = async (req, res) => {
       return res.status(400).json({
         status: false,
         statusCode: 400,
-        message: 'Invalid email',
+        message: 'Email không hợp lệ',
         data: null,
       });
     }
@@ -307,7 +307,7 @@ exports.login = async (req, res) => {
       return res.status(400).json({
         status: false,
         statusCode: 400,
-        message: 'Invalid password',
+        message: 'Mật khẩu không hợp lệ',
         data: null,
       });
     }
@@ -315,7 +315,7 @@ exports.login = async (req, res) => {
       return res.status(403).json({
         status: false,
         statusCode: 403,
-        message: 'Please set your interests before logging in',
+        message: 'Vui lòng cài đặt sở thích trước khi đăng nhập',
         data: null,
       });
     }
@@ -323,15 +323,15 @@ exports.login = async (req, res) => {
       return res.status(403).json({
         status: false,
         statusCode: 403,
-        message: 'Please verify your email before logging in',
+        message: 'Vui lòng xác thực email trước khi đăng nhập',
         data: null,
       });
     }
     if (user.isBanned) {
-      return res.status(403).json({
+      return res.status(401).json({
         status: false,
-        statusCode: 403,
-        message: 'Your account has been banned',
+        statusCode: 401,
+        message: 'Tài khoản của bạn đã bị khóa',
         data: null,
       });
     }
