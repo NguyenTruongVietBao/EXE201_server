@@ -31,8 +31,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
-app.get('/', (req, res) => {
-  res.send('Hello World');
+app.get('/api', (req, res) => {
+  res.send('Hello World API');
 });
 
 app.use('/api/auth', authRoutes);

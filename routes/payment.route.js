@@ -13,12 +13,15 @@ const {
   getMyPurchasedDocuments,
   checkRefundEligibility,
   getRefundablePayments,
+  getPaymentHistory,
 } = require('../controllers/payment.controller');
 
 const router = express.Router();
 
 // CUSTOMER - Callback từ PayOS sau khi thanh toán
 router.post('/callback', handlePaymentCallback);
+// CUSTOMER - Lấy danh sách thanh toán
+router.get('/history', protectRoute, getPaymentHistory);
 // CUSTOMER - Tài liệu đã mua
 router.get('/my-purchased-documents', protectRoute, getMyPurchasedDocuments);
 // CUSTOMER - Kiểm tra payment có thể refund không

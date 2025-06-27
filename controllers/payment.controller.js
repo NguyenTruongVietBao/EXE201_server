@@ -105,6 +105,27 @@ exports.buyDocument = async (req, res) => {
   }
 };
 
+exports.getPaymentHistory = async (req, res) => {
+  try {
+    const id = req.user._id;
+    const payment = await Payment.find({ userId: id }).populate('documentId');
+    return res.status(200).json({
+      status: true,
+      statusCode: 200,
+      message: 'Lấy danh sách thanh toán thành công',
+      data: payment,
+    });
+  } catch (error) {
+    console.error('ERROR getPayment:', error);
+    return res.status(500).json({
+      status: false,
+      statusCode: 500,
+      message: 'Lỗi hệ thống',
+      data: null,
+    });
+  }
+};
+
 // Xử lý callback từ PayOS
 exports.handlePaymentCallback = async (req, res) => {
   try {
