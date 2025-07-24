@@ -17,7 +17,7 @@ exports.registerCustomer = async (req, res) => {
       return res.status(400).json({
         status: false,
         statusCode: 400,
-        message: 'User already exists',
+        message: 'Người dùng đã tồn tại',
         data: null,
       });
     }
@@ -25,7 +25,7 @@ exports.registerCustomer = async (req, res) => {
       return res.status(400).json({
         status: false,
         statusCode: 400,
-        message: 'Password must be at least 6 characters long',
+        message: 'Mật khẩu phải có ít nhất 6 ký tự',
         data: null,
       });
     }
@@ -33,7 +33,7 @@ exports.registerCustomer = async (req, res) => {
       return res.status(400).json({
         status: false,
         statusCode: 400,
-        message: 'Phone is required',
+        message: 'Số điện thoại là bắt buộc',
         data: null,
       });
     }
@@ -83,7 +83,7 @@ exports.registerCustomer = async (req, res) => {
     res.status(201).json({
       status: true,
       statusCode: 201,
-      message: 'User registered successfully',
+      message: 'Đăng ký thành công',
       data: {
         user,
         accessToken,
@@ -94,7 +94,7 @@ exports.registerCustomer = async (req, res) => {
     res.status(500).json({
       status: false,
       statusCode: 500,
-      message: 'Internal server error',
+      message: 'Lỗi máy chủ',
       data: null,
     });
   }
@@ -116,7 +116,7 @@ exports.registerSeller = async (req, res) => {
       return res.status(400).json({
         status: false,
         statusCode: 400,
-        message: 'User already exists',
+        message: 'Người dùng đã tồn tại',
         data: null,
       });
     }
@@ -124,7 +124,7 @@ exports.registerSeller = async (req, res) => {
       return res.status(400).json({
         status: false,
         statusCode: 400,
-        message: 'Password must be at least 6 characters long',
+        message: 'Mật khẩu phải có ít nhất 6 ký tự',
         data: null,
       });
     }
@@ -132,7 +132,7 @@ exports.registerSeller = async (req, res) => {
       return res.status(400).json({
         status: false,
         statusCode: 400,
-        message: 'Phone is required',
+        message: 'Số điện thoại là bắt buộc',
         data: null,
       });
     }
@@ -140,7 +140,7 @@ exports.registerSeller = async (req, res) => {
       return res.status(400).json({
         status: false,
         statusCode: 400,
-        message: 'Bank name, account name and account number are required',
+        message: 'Tên ngân hàng, tên tài khoản và số tài khoản là bắt buộc',
         data: null,
       });
     }
@@ -194,7 +194,7 @@ exports.registerSeller = async (req, res) => {
     res.status(201).json({
       status: true,
       statusCode: 201,
-      message: 'User registered successfully',
+      message: 'Đăng ký thành công',
       data: {
         user,
         accessToken,
@@ -205,7 +205,7 @@ exports.registerSeller = async (req, res) => {
     res.status(500).json({
       status: false,
       statusCode: 500,
-      message: 'Internal server error',
+      message: 'Lỗi máy chủ',
       data: null,
     });
   }

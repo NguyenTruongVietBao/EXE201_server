@@ -760,6 +760,7 @@ exports.downloadDocument = async (req, res) => {
   try {
     const { id: documentId } = req.params;
     const userId = req.user?._id;
+
     // Check if document exists
     const document = await Document.findById(documentId);
     if (!document) {
@@ -770,27 +771,45 @@ exports.downloadDocument = async (req, res) => {
         data: null,
       });
     }
-    // Check if user has enrolled the document
-    const hasEnrollment = await Enrollment.findOne({
+
+    // ✅ FIX: Kiểm tra quyền truy cập đầy đủ như trong downloadDocumentAsZip
+    const enrollment = await Enrollment.findOne({
       documentId: documentId,
       userId: userId,
     });
-    if (!hasEnrollment) {
+
+    const isAuthor = document.author.toString() === userId.toString();
+    const isFree = document.isFree || document.price === 0;
+
+    // Kiểm tra quyền truy cập: phải có enrollment HOẶC là tác giả HOẶC tài liệu miễn phí
+    if (!enrollment && !isAuthor && !isFree) {
       return res.status(403).json({
         status: false,
         statusCode: 403,
-        message: 'Bạn chưa đăng ký khóa học này',
+        message: 'Bạn không có quyền truy cập tài liệu này',
         data: null,
       });
     }
 
+    // Gọi function download
     const result = await downloadDocumentAsZip(documentId, userId);
 
-    if (!result.status) {
+    // ✅ FIX: Kiểm tra đúng property 'success'
+    if (!result.success) {
       return res.status(500).json({
         status: false,
         statusCode: 500,
         message: 'Lỗi khi tạo file ZIP',
+        data: null,
+      });
+    }
+
+    // ✅ FIX: Kiểm tra file tồn tại trước khi stream
+    if (!fs.existsSync(result.zipPath)) {
+      return res.status(500).json({
+        status: false,
+        statusCode: 500,
+        message: 'Không thể tạo file ZIP',
         data: null,
       });
     }
@@ -804,6 +823,20 @@ exports.downloadDocument = async (req, res) => {
 
     // Stream file ZIP về client
     const fileStream = fs.createReadStream(result.zipPath);
+
+    // ✅ FIX: Xử lý lỗi khi stream file
+    fileStream.on('error', (error) => {
+      console.error('Stream error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          status: false,
+          statusCode: 500,
+          message: 'Lỗi khi tải file',
+          data: null,
+        });
+      }
+    });
+
     fileStream.pipe(res);
 
     // Xóa file ZIP sau khi gửi (5 giây)
@@ -819,10 +852,26 @@ exports.downloadDocument = async (req, res) => {
     console.log(`📦 ZIP download started for document: ${documentId}`);
   } catch (error) {
     console.error('Download error:', error);
-    res.status(error.message.includes('không có quyền') ? 403 : 404).json({
+
+    // ✅ FIX: Xử lý lỗi chi tiết hơn
+    let statusCode = 500;
+    let message = 'Lỗi server khi tải tài liệu';
+
+    if (
+      error.message.includes('không có quyền') ||
+      error.message.includes('quyền truy cập')
+    ) {
+      statusCode = 403;
+      message = error.message;
+    } else if (error.message.includes('không tìm thấy')) {
+      statusCode = 404;
+      message = error.message;
+    }
+
+    res.status(statusCode).json({
       status: false,
-      statusCode: error.message.includes('không có quyền') ? 403 : 404,
-      message: error.message,
+      statusCode: statusCode,
+      message: message,
       data: null,
     });
   }
