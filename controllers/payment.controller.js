@@ -75,7 +75,6 @@ exports.buyDocument = async (req, res) => {
       paymentId: payment._id,
     };
     const paymentLink = await createPayment(paymentData, req.user, finalPrice);
-    console.log('🚀 ~ exports.buyDocument= ~ paymentLink:', paymentLink);
 
     if (!paymentLink) {
       payment.status = 'FAILED';

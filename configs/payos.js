@@ -7,6 +7,7 @@ const payos = new PayOS(
 );
 
 const createPayment = async (paymentData, user, finalPrice) => {
+  console.log('🚀 ~ createPayment ~ paymentData:', paymentData);
   const body = {
     orderCode: Number(String(new Date().getTime()).slice(-6)),
     amount: Number(finalPrice),
@@ -16,7 +17,6 @@ const createPayment = async (paymentData, user, finalPrice) => {
     buyerPhone: user.phone,
     items: [
       {
-        id: paymentData._id,
         name: paymentData.title,
         quantity: 1,
         price: Number(finalPrice),
