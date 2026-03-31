@@ -38,7 +38,7 @@ exports.generateResetPasswordToken = () => {
 
 exports.sendEmail = async (options) => {
   const transporter = nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE,
+    service: 'gmail',
     auth: {
       user: process.env.EMAIL_USERNAME,
       pass: process.env.EMAIL_PASSWORD,
@@ -46,11 +46,18 @@ exports.sendEmail = async (options) => {
   });
 
   const mailOptions = {
-    from: process.env.EMAIL_FROM,
+    from: `"Prilab" <${process.env.EMAIL_USERNAME}>`,
     to: options.to,
     subject: options.subject,
     html: options.text,
   };
 
-  await transporter.sendMail(mailOptions);
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`✅ Email sent to ${options.to} | MessageId: ${info.messageId}`);
+    return info;
+  } catch (error) {
+    console.error(`❌ Failed to send email to ${options.to}:`, error.message);
+    throw error;
+  }
 };

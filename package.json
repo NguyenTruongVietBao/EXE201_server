@@ -29,7 +29,7 @@
     "mongoose": "^8.15.1",
     "multer": "^2.0.1",
     "node-cron": "^3.0.3",
-    "nodemailer": "^7.0.3",
+    "nodemailer": "8.0.4",
     "socket.io": "^4.8.1"
   }
 }

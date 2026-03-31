@@ -101,15 +101,7 @@ exports.registerCustomer = async (req, res) => {
 };
 exports.registerSeller = async (req, res) => {
   try {
-    const {
-      name,
-      email,
-      password,
-      phone,
-      bankName,
-      bankAccountName,
-      bankAccountNumber,
-    } = req.body;
+    const { name, email, password, phone, bankName, bankAccountName, bankAccountNumber } = req.body;
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
